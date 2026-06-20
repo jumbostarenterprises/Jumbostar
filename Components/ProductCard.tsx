@@ -58,6 +58,12 @@ export default function ProductCard({ product }: { product: any }) {
     checkStatus();
   }, [product.id, variants]);
 
+  // Don't render this product at all if no variant has stock.
+  // This check MUST come after all hooks above so hook order stays
+  // identical on every render regardless of stock status.
+  const hasAnyStock = variants.some((v: any) => (v.stock || 0) > 0);
+  if (!hasAnyStock) return null;
+
   const toggleWishlist = async (e: React.MouseEvent) => {
     e.preventDefault(); // Prevents link navigation
     e.stopPropagation(); // Prevents event bubbling
@@ -75,6 +81,7 @@ export default function ProductCard({ product }: { product: any }) {
   const handleAddToCartClick = async (e: React.MouseEvent) => {
     e.preventDefault(); // Prevents link navigation
     e.stopPropagation(); // Prevents event bubbling
+    if (stock <= 0) { toast.error("This item is out of stock"); return; }
     const userId = await getUserId();
     if (!userId) { toast.error("Login to source", { icon: '🔒' }); return; }
     setQuantity(minQty);
@@ -84,6 +91,9 @@ export default function ProductCard({ product }: { product: any }) {
   const handleVariantClick = (e: React.MouseEvent, index: number) => {
     e.preventDefault(); // Prevents link navigation
     e.stopPropagation(); // Prevents event bubbling
+    if ((variants[index]?.stock || 0) <= 0) {
+      toast.error("This variant is out of stock");
+    }
     setActiveIdx(index);
   };
 
@@ -122,7 +132,15 @@ export default function ProductCard({ product }: { product: any }) {
           <button onClick={toggleWishlist} className={`h-8 w-8 md:h-10 md:w-10 rounded-full flex items-center justify-center shadow-sm transition-all ${isInWishlist ? "bg-red-50 text-red-600" : "bg-white/80 text-slate-400"}`}>
             <Heart size={14} fill={isInWishlist ? "currentColor" : "none"} />
           </button>
-          <button onClick={handleAddToCartClick} className={`h-8 w-8 md:h-10 md:w-10 rounded-full flex items-center justify-center shadow-sm transition-all ${isInCart ? "bg-slate-900 text-white" : "bg-white/80 text-slate-900"}`}>
+          <button
+            onClick={handleAddToCartClick}
+            disabled={stock <= 0}
+            className={`h-8 w-8 md:h-10 md:w-10 rounded-full flex items-center justify-center shadow-sm transition-all ${
+              stock <= 0
+                ? "bg-slate-100 text-slate-300 cursor-not-allowed"
+                : isInCart ? "bg-slate-900 text-white" : "bg-white/80 text-slate-900"
+            }`}
+          >
             <ShoppingCart size={14} />
           </button>
         </div>
@@ -222,10 +240,14 @@ export default function ProductCard({ product }: { product: any }) {
 
             <button 
                 onClick={confirmAddToCart} 
-                disabled={loading} 
-                className="w-full bg-red-600 text-white py-4 rounded-xl md:rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm shadow-xl shadow-red-100 hover:bg-slate-900 transition-all"
+                disabled={loading || stock <= 0} 
+                className={`w-full py-4 rounded-xl md:rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm shadow-xl transition-all ${
+                  stock <= 0
+                    ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
+                    : "bg-red-600 text-white shadow-red-100 hover:bg-slate-900"
+                }`}
             >
-              {loading ? "Adding..." : `Add to Cart • ₹${(currentPrice * quantity).toLocaleString()}`}
+              {loading ? "Adding..." : stock <= 0 ? "Out of Stock" : `Add to Cart • ₹${(currentPrice * quantity).toLocaleString()}`}
             </button>
           </div>
         </div>
