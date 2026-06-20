@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Jumbo Star',
   webDir: 'out',
   server: {
-    url: 'https://jambostar.vercel.app/Wholesale/home', 
+    url: 'https://www.jumbostar.in', 
     cleartext: true,
     // Add this to allow the app to navigate properly on your domain
     allowNavigation: ['jambostar.vercel.app']
