@@ -261,6 +261,27 @@ export default function CheckoutPage() {
 
             if (insertError) throw insertError;
 
+            // Decrement stock atomically (throws if any item is out of stock)
+            const stockPayload = cartItems.map((item: any) => ({
+                variant_id: item.product_variants.id,
+                quantity: item.quantity
+            }));
+
+            const { error: stockError } = await supabase.rpc(
+                "decrement_stock_for_order",
+                { p_items: stockPayload }
+            );
+
+            if (stockError) {
+                // Roll back the order we just created since stock couldn't be reserved
+                await supabase.from("orders").delete().eq("id", order.id);
+                throw new Error(
+                    stockError.message?.includes("Insufficient stock")
+                        ? "Sorry, one or more items just went out of stock. Please update your cart."
+                        : "Could not reserve stock for this order. Please try again."
+                );
+            }
+
             let screenshotUrl: string | null = null;
 
             // Upload Payment Proof
