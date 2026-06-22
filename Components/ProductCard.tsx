@@ -28,8 +28,11 @@ export default function ProductCard({ product }: { product: any }) {
   const mrp = currentVariant.mrp || 0;
   const stock = currentVariant.stock || 0;
   const minQty = currentVariant.min_quantity || 1;
-  const maxQty = currentVariant.max_quantity || stock || 9999; 
-  
+  const maxQty = currentVariant.max_quantity || stock || 9999;
+
+  const hasAnyStock = variants.some((v: any) => (v.stock || 0) > 0);
+  const isOutOfStock = stock <= 0;
+
   const [isInWishlist, setIsInWishlist] = useState(false);
   const [isInCart, setIsInCart] = useState(false);
 
@@ -58,15 +61,13 @@ export default function ProductCard({ product }: { product: any }) {
     checkStatus();
   }, [product.id, variants]);
 
-  // Don't render this product at all if no variant has stock.
-  // This check MUST come after all hooks above so hook order stays
-  // identical on every render regardless of stock status.
-  const hasAnyStock = variants.some((v: any) => (v.stock || 0) > 0);
-  if (!hasAnyStock) return null;
-
   const toggleWishlist = async (e: React.MouseEvent) => {
-    e.preventDefault(); // Prevents link navigation
-    e.stopPropagation(); // Prevents event bubbling
+    e.preventDefault();
+    e.stopPropagation();
+    if (!hasAnyStock) {
+      toast.error("Product is out of stock");
+      return;
+    }
     const userId = await getUserId();
     if (!userId) { toast.error("Please login first"); return; }
     if (isInWishlist) {
@@ -79,9 +80,9 @@ export default function ProductCard({ product }: { product: any }) {
   };
 
   const handleAddToCartClick = async (e: React.MouseEvent) => {
-    e.preventDefault(); // Prevents link navigation
-    e.stopPropagation(); // Prevents event bubbling
-    if (stock <= 0) { toast.error("This item is out of stock"); return; }
+    e.preventDefault();
+    e.stopPropagation();
+    if (isOutOfStock) { toast.error("This variant is out of stock"); return; }
     const userId = await getUserId();
     if (!userId) { toast.error("Login to source", { icon: '🔒' }); return; }
     setQuantity(minQty);
@@ -89,8 +90,8 @@ export default function ProductCard({ product }: { product: any }) {
   };
 
   const handleVariantClick = (e: React.MouseEvent, index: number) => {
-    e.preventDefault(); // Prevents link navigation
-    e.stopPropagation(); // Prevents event bubbling
+    e.preventDefault();
+    e.stopPropagation();
     if ((variants[index]?.stock || 0) <= 0) {
       toast.error("This variant is out of stock");
     }
@@ -111,8 +112,7 @@ export default function ProductCard({ product }: { product: any }) {
   };
 
   return (
-    // Wrap entire card component with standard semantic Next.js link routing
-    <Link 
+    <Link
       href={`/Wholesale/products/${product.id}`}
       className="group bg-white rounded-[1.5rem] md:rounded-[2.5rem] p-2 md:p-4 transition-all duration-500 hover:shadow-xl border border-slate-50 flex flex-col h-full relative cursor-pointer"
     >
@@ -120,55 +120,123 @@ export default function ProductCard({ product }: { product: any }) {
 
       {/* 1. IMAGE SECTION */}
       <div className="relative aspect-square overflow-hidden rounded-[1.2rem] md:rounded-[2rem] bg-slate-50 mb-3 group/img">
-        <div className="absolute top-2 left-2 z-20">
-          <div className={`px-2 py-0.5 rounded-full flex items-center gap-1 border backdrop-blur-md ${stock > 0 ? "bg-green-500/10 border-green-500/20 text-green-600" : "bg-red-500/10 border-red-500/20 text-red-600"}`}>
-            <span className="text-[7px] md:text-[8px] font-black uppercase tracking-tight md:tracking-widest">
-              {stock > 0 ? `${stock} In Stock` : "Sold Out"}
+
+        {/* Top-left badge — only show when IN stock */}
+        {!isOutOfStock && hasAnyStock && (
+          <div className="absolute top-2 left-2 z-20">
+            <div className="px-2 py-0.5 rounded-full flex items-center gap-1 border backdrop-blur-md bg-green-500/10 border-green-500/20 text-green-600">
+              <span className="text-[7px] md:text-[8px] font-black uppercase tracking-tight md:tracking-widest">
+                {stock} In Stock
+              </span>
+            </div>
+          </div>
+        )}
+        {/* Out of Stock label — below product name */}
+        {!hasAnyStock && (
+          <div className="mb-2 md:mb-3">
+            <span className="inline-flex items-center gap-1 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-red-500 bg-red-50 border border-red-100 px-2.5 py-1 rounded-lg">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-400 inline-block" />
+              Out of Stock
             </span>
           </div>
-        </div>
-
-        <div className="absolute top-2 right-2 z-20 flex flex-col gap-1.5 transition-all">
-          <button onClick={toggleWishlist} className={`h-8 w-8 md:h-10 md:w-10 rounded-full flex items-center justify-center shadow-sm transition-all ${isInWishlist ? "bg-red-50 text-red-600" : "bg-white/80 text-slate-400"}`}>
-            <Heart size={14} fill={isInWishlist ? "currentColor" : "none"} />
+        )}
+        {/* Wishlist & Cart buttons */}
+        <div className="absolute top-2 right-2 z-20 flex flex-col gap-1.5">
+          <button
+            onClick={toggleWishlist}
+            disabled={!hasAnyStock}
+            title={!hasAnyStock ? "Out of stock" : isInWishlist ? "Remove from wishlist" : "Add to wishlist"}
+            className={`h-8 w-8 md:h-10 md:w-10 rounded-full flex items-center justify-center shadow-sm transition-all ${
+              !hasAnyStock
+                ? "bg-slate-100 text-slate-300 cursor-not-allowed opacity-40"
+                : isInWishlist
+                ? "bg-red-50 text-red-600"
+                : "bg-white/80 text-slate-400"
+            }`}
+          >
+            <Heart size={14} fill={isInWishlist && hasAnyStock ? "currentColor" : "none"} />
           </button>
+
           <button
             onClick={handleAddToCartClick}
-            disabled={stock <= 0}
+            disabled={isOutOfStock}
+            title={isOutOfStock ? "Out of stock" : "Add to cart"}
             className={`h-8 w-8 md:h-10 md:w-10 rounded-full flex items-center justify-center shadow-sm transition-all ${
-              stock <= 0
-                ? "bg-slate-100 text-slate-300 cursor-not-allowed"
-                : isInCart ? "bg-slate-900 text-white" : "bg-white/80 text-slate-900"
+              isOutOfStock
+                ? "bg-slate-100 text-slate-300 cursor-not-allowed opacity-40"
+                : isInCart
+                ? "bg-slate-900 text-white"
+                : "bg-white/80 text-slate-900"
             }`}
           >
             <ShoppingCart size={14} />
           </button>
         </div>
 
+        {/* Image — always full color, no grey */}
         {displayImage ? (
-          <Image src={displayImage} alt={product.name} fill className="object-contain p-4 md:p-8 transition-transform duration-700 group-hover:scale-110" />
+          <Image
+            src={displayImage}
+            alt={product.name}
+            fill
+            className="object-contain p-4 md:p-8 transition-transform duration-700 group-hover:scale-110"
+          />
         ) : (
-          <div className="h-full flex items-center justify-center text-slate-200"><ImageOff size={30} /></div>
+          <div className="h-full flex items-center justify-center text-slate-200">
+            <ImageOff size={30} />
+          </div>
         )}
       </div>
 
       {/* 2. VARIANT SELECTION */}
       <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-3 pb-1">
-        {variants.map((v: any, i: number) => (
-          <button
-            key={v.id}
-            onClick={(e) => handleVariantClick(e, i)}
-            className={`whitespace-nowrap px-2.5 py-1 md:px-3 md:py-1.5 rounded-lg md:rounded-xl text-[8px] md:text-[10px] font-black uppercase tracking-widest transition-all shrink-0 ${activeIdx === i ? "bg-slate-900 text-white shadow-md" : "bg-slate-50 text-slate-400"}`}
-          >
-            {v.variant}{v.unit}
-          </button>
-        ))}
+        {variants.map((v: any, i: number) => {
+          const variantOOS = (v.stock || 0) <= 0;
+          return (
+            <button
+              key={v.id}
+              onClick={(e) => handleVariantClick(e, i)}
+              title={variantOOS ? "Out of stock" : ""}
+              className={`whitespace-nowrap px-2.5 py-1 md:px-3 md:py-1.5 rounded-lg md:rounded-xl text-[8px] md:text-[10px] font-black uppercase tracking-widest transition-all shrink-0 relative ${
+                activeIdx === i
+                  ? variantOOS
+                    ? "bg-slate-200 text-slate-400 shadow-md"
+                    : "bg-slate-900 text-white shadow-md"
+                  : variantOOS
+                  ? "bg-slate-50 text-slate-300 line-through"
+                  : "bg-slate-50 text-slate-400"
+              }`}
+            >
+              {v.variant}{v.unit}
+              {variantOOS && (
+                <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 bg-red-400 rounded-full" />
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* 3. CONTENT AREA */}
       <div className="px-1 md:px-2 flex flex-col flex-grow">
-        <p className="text-[7px] md:text-[9px] font-black text-red-600 uppercase tracking-widest mb-1">{product.brand || "JumboStar"}</p>
-        <h3 className="text-[11px] md:text-sm font-black text-slate-900 mb-2 md:mb-4 line-clamp-2 leading-tight uppercase tracking-tight">{product.name}</h3>
+        <p className="text-[7px] md:text-[9px] font-black text-red-600 uppercase tracking-widest mb-1">
+          {product.brand || "JumboStar"}
+        </p>
+
+        <h3 className="text-[11px] md:text-sm font-black text-slate-900 mb-1 md:mb-2 line-clamp-2 leading-tight uppercase tracking-tight">
+          {product.name}
+        </h3>
+
+
+
+        {/* Variant-level out of stock */}
+        {hasAnyStock && isOutOfStock && (
+          <div className="mb-2 md:mb-3">
+            <span className="inline-flex items-center gap-1 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-orange-500 bg-orange-50 border border-orange-100 px-2.5 py-1 rounded-lg">
+              <span className="h-1.5 w-1.5 rounded-full bg-orange-400 inline-block" />
+              This Variant Unavailable
+            </span>
+          </div>
+        )}
 
         <div className="mt-auto flex items-center justify-between border-t border-slate-50 pt-3">
           <div className="flex flex-col">
@@ -178,8 +246,11 @@ export default function ProductCard({ product }: { product: any }) {
               <span className="text-[6px] md:text-[8px] font-black text-slate-400 uppercase leading-none">/Wholesale</span>
             </div>
           </div>
-          {/* Changed standard Link here to a simple visual indicator div to avoid invalid nested structural code */}
-          <div className="h-8 w-8 md:h-12 md:w-12 bg-slate-50 text-slate-900 rounded-xl md:rounded-2xl flex items-center justify-center group-hover:bg-red-600 group-hover:text-white transition-all">
+          <div className={`h-8 w-8 md:h-12 md:w-12 rounded-xl md:rounded-2xl flex items-center justify-center transition-all ${
+            !hasAnyStock
+              ? "bg-slate-100 text-slate-300"
+              : "bg-slate-50 text-slate-900 group-hover:bg-red-600 group-hover:text-white"
+          }`}>
             <ArrowRight size={16} />
           </div>
         </div>
@@ -187,8 +258,8 @@ export default function ProductCard({ product }: { product: any }) {
 
       {/* --- MOQ & MAX MODAL --- */}
       {showMoqModal && (
-        <div 
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} 
+        <div
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
           className="fixed inset-0 z-[100] flex items-end md:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 md:p-4"
         >
           <div className="bg-white rounded-t-[2rem] md:rounded-[2.5rem] w-full max-w-sm p-6 md:p-8 shadow-2xl animate-in slide-in-from-bottom md:zoom-in-95 duration-300">
@@ -200,26 +271,26 @@ export default function ProductCard({ product }: { product: any }) {
                   <span className="text-[8px] font-bold text-red-500 uppercase border border-red-100 px-2 py-0.5 rounded-md bg-red-50">Max: {maxQty}</span>
                 </div>
               </div>
-              <button onClick={() => setShowMoqModal(false)} className="p-2 bg-slate-50 rounded-full"><X size={18} /></button>
+              <button onClick={() => setShowMoqModal(false)} className="p-2 bg-slate-50 rounded-full">
+                <X size={18} />
+              </button>
             </div>
 
             <div className="bg-slate-50 rounded-2xl md:rounded-3xl p-4 md:p-6 flex items-center justify-between mb-6">
-              <button 
-                disabled={quantity <= minQty} 
-                onClick={() => setQuantity(q => q - 1)} 
+              <button
+                disabled={quantity <= minQty}
+                onClick={() => setQuantity(q => q - 1)}
                 className="h-10 w-10 md:h-12 md:w-12 bg-white rounded-xl flex items-center justify-center disabled:opacity-30 shadow-sm transition-all active:scale-95"
               >
                 <Minus size={18} />
               </button>
-              
               <div className="text-center">
                 <span className="text-2xl md:text-3xl font-black text-slate-900">{quantity}</span>
                 <p className="text-[7px] md:text-[8px] font-bold text-slate-400 uppercase">Units</p>
               </div>
-
-              <button 
-                disabled={quantity >= maxQty} 
-                onClick={() => setQuantity(q => q + 1)} 
+              <button
+                disabled={quantity >= maxQty}
+                onClick={() => setQuantity(q => q + 1)}
                 className="h-10 w-10 md:h-12 md:w-12 bg-slate-900 text-white rounded-xl flex items-center justify-center disabled:bg-slate-300 transition-all active:scale-95"
               >
                 <Plus size={18} />
@@ -227,27 +298,27 @@ export default function ProductCard({ product }: { product: any }) {
             </div>
 
             <div className="flex items-center justify-between mb-4 px-2">
-               <div>
+              <div>
                 <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Price per Unit</p>
                 <p className="text-sm font-black text-slate-900">₹{currentPrice.toLocaleString()}</p>
-               </div>
-               {currentPrice < wholesale && (
-                 <span className="flex items-center gap-1 text-[8px] font-black text-green-600 bg-green-50 px-2 py-1 rounded-full animate-pulse">
-                   <Tag size={10} /> TIER APPLIED
-                 </span>
-               )}
+              </div>
+              {currentPrice < wholesale && (
+                <span className="flex items-center gap-1 text-[8px] font-black text-green-600 bg-green-50 px-2 py-1 rounded-full animate-pulse">
+                  <Tag size={10} /> TIER APPLIED
+                </span>
+              )}
             </div>
 
-            <button 
-                onClick={confirmAddToCart} 
-                disabled={loading || stock <= 0} 
-                className={`w-full py-4 rounded-xl md:rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm shadow-xl transition-all ${
-                  stock <= 0
-                    ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
-                    : "bg-red-600 text-white shadow-red-100 hover:bg-slate-900"
-                }`}
+            <button
+              onClick={confirmAddToCart}
+              disabled={loading || isOutOfStock}
+              className={`w-full py-4 rounded-xl md:rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm shadow-xl transition-all ${
+                isOutOfStock
+                  ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
+                  : "bg-red-600 text-white shadow-red-100 hover:bg-slate-900"
+              }`}
             >
-              {loading ? "Adding..." : stock <= 0 ? "Out of Stock" : `Add to Cart • ₹${(currentPrice * quantity).toLocaleString()}`}
+              {loading ? "Adding..." : isOutOfStock ? "Out of Stock" : `Add to Cart • ₹${(currentPrice * quantity).toLocaleString()}`}
             </button>
           </div>
         </div>
