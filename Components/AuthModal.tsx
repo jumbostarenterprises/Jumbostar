@@ -117,7 +117,6 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
         }
     };
 
-    // Reverse geocode via our own API route (server-side, works everywhere)
     const reverseGeocode = async (lat: number, lon: number): Promise<string> => {
         try {
             const res = await fetch(`/api/geocode?lat=${lat}&lon=${lon}`);
@@ -141,163 +140,153 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
         }
     };
 
-    // Detect if running inside a mobile WebView/PWA
-    const isMobileApp = (): boolean => {
+    // ─── IMPROVED: covers all WebView signatures including custom schemes ───
+    const isMobileWebView = (): boolean => {
         if (typeof window === "undefined") return false;
         const ua = navigator.userAgent || "";
-        return (
-            // Android WebView
-            /wv/.test(ua) ||
-            /Version\/[\d.]+.*Chrome\/[\d.]+.*Mobile/.test(ua) ||
-            // iOS WebView (no Safari in UA)
-            (/iPhone|iPad|iPod/.test(ua) && !/Safari/.test(ua)) ||
-            // PWA standalone mode
-            window.matchMedia("(display-mode: standalone)").matches ||
-            (window.navigator as any).standalone === true
-        );
+
+        const isAndroidWebView =
+            /Android/.test(ua) && /wv/.test(ua);
+
+        const isAndroidWebViewAlt =
+            /Android/.test(ua) &&
+            /Version\/[\d.]+ Chrome\/[\d.]+/.test(ua) &&
+            !/Chrome\/[\d.]+ Mobile Safari/.test(ua);
+
+        const isIOSWebView =
+            /iPhone|iPad|iPod/.test(ua) && !/Safari\//.test(ua);
+
+        const isPWA =
+            window.matchMedia?.("(display-mode: standalone)").matches ||
+            (window.navigator as any).standalone === true;
+
+        // Custom app scheme (file://, capacitor://, ionic://, etc.)
+        const isCustomScheme =
+            !["https:", "http:"].includes(window.location.protocol);
+
+        return isAndroidWebView || isAndroidWebViewAlt || isIOSWebView || isPWA || isCustomScheme;
     };
 
-    const showAppPermissionGuide = () => {
+    const showPermissionGuide = () => {
         const ua = navigator.userAgent || "";
         const isIOS = /iPhone|iPad|iPod/.test(ua);
         const isAndroid = /Android/.test(ua);
+        const isWebView = isMobileWebView();
 
-        if (isIOS) {
-            toast.error(
-                "iPhone: Go to Settings → Privacy & Security → Location Services → Your Browser → While Using App",
-                { duration: 8000 }
-            );
-        } else if (isAndroid) {
-            toast.error(
-                "Android: Go to Settings → Apps → Your Browser → Permissions → Location → Allow",
-                { duration: 8000 }
-            );
+        if (isWebView) {
+            // Inside the app — guide them to device settings, not browser
+            if (isIOS) {
+                toast.error(
+                    "📍 iPhone: Settings → Privacy & Security → Location Services → Find our App → Change to 'While Using'",
+                    { duration: 10000 }
+                );
+            } else if (isAndroid) {
+                toast.error(
+                    "📍 Android: Settings → Apps → Find our App → Permissions → Location → Allow",
+                    { duration: 10000 }
+                );
+            } else {
+                toast.error("📍 Please enable Location permission for this app in your device Settings.", { duration: 8000 });
+            }
         } else {
-            toast.error(
-                "Please enable location permission in your device settings for this app.",
-                { duration: 6000 }
-            );
+            // Browser
+            if (isIOS) {
+                toast.error(
+                    "📍 iPhone: Settings → Safari → Location → Allow",
+                    { duration: 8000 }
+                );
+            } else if (isAndroid) {
+                toast.error(
+                    "📍 Android: Settings → Apps → Chrome → Permissions → Location → Allow",
+                    { duration: 8000 }
+                );
+            } else {
+                toast.error("📍 Click the lock icon in your browser address bar and allow Location.", { duration: 6000 });
+            }
         }
     };
 
-    const handleUseMyLocation = () => {
+    // ─── Core location fetch — direct call, no permissions API ───
+    const fetchLocation = (highAccuracy: boolean): Promise<GeolocationPosition> => {
+        return new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(
+                resolve,
+                reject,
+                {
+                    enableHighAccuracy: highAccuracy,
+                    timeout: highAccuracy ? 15000 : 20000,
+                    maximumAge: highAccuracy ? 0 : 60000,
+                }
+            );
+        });
+    };
+
+    const applyLocation = async (lat: number, lon: number) => {
+        const mapsLink = `https://www.google.com/maps?q=${lat},${lon}`;
+        const address = await reverseGeocode(lat, lon);
+        setFormData((prev) => ({
+            ...prev,
+            mapLink: mapsLink,
+            shopAddress: prev.shopAddress.trim() ? prev.shopAddress : address,
+            regAddress: prev.regAddress.trim() ? prev.regAddress : address,
+        }));
+        if (address) {
+            toast.success("✅ Address auto-filled! Review and edit if needed.", { duration: 4000 });
+        } else {
+            toast.success("📍 Maps link saved. Please type your address manually.");
+        }
+    };
+
+    const handleUseMyLocation = async () => {
         if (!navigator.geolocation) {
             toast.error("Location not supported on this device. Please paste a Google Maps link manually.");
             return;
         }
 
-        // Skip HTTPS check for mobile apps — WebViews often use file:// or custom schemes
-        const isApp = isMobileApp();
-        if (!isApp && window.location.protocol !== "https:" && window.location.hostname !== "localhost") {
-            toast.error("Location access requires a secure (HTTPS) connection.");
-            return;
-        }
-
         setLocationLoading(true);
 
-        // For mobile apps skip the permissions API entirely — it's unreliable in WebViews
-        // Just call getCurrentPosition directly and handle errors in the callback
-        if (isApp) {
-            requestLocation();
-            return;
-        }
+        try {
+            // ── Step 1: Skip the permissions API entirely (unreliable in WebViews)
+            //    Directly call getCurrentPosition — the OS will prompt if needed.
+            let position: GeolocationPosition;
 
-        // Desktop/browser: check permission first
-        if (navigator.permissions) {
-            navigator.permissions.query({ name: "geolocation" }).then((permResult) => {
-                if (permResult.state === "denied") {
-                    setLocationLoading(false);
-                    showAppPermissionGuide();
-                    return;
-                }
-                requestLocation();
-            }).catch(() => requestLocation());
-        } else {
-            requestLocation();
-        }
-    };
-
-    const requestLocation = () => {
-        // Try high accuracy first (GPS on mobile)
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                const { latitude, longitude } = position.coords;
-                const mapsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
-                const address = await reverseGeocode(latitude, longitude);
-
-                setFormData((prev) => ({
-                    ...prev,
-                    mapLink: mapsLink,
-                    shopAddress: prev.shopAddress.trim() ? prev.shopAddress : address,
-                    regAddress: prev.regAddress.trim() ? prev.regAddress : address,
-                }));
-
-                if (address) {
-                    toast.success("Address auto-filled! Please review and edit if needed.", { duration: 4000 });
+            try {
+                // Try GPS first
+                position = await fetchLocation(true);
+            } catch (firstErr: any) {
+                if (
+                    firstErr.code === firstErr.TIMEOUT ||
+                    firstErr.code === firstErr.POSITION_UNAVAILABLE
+                ) {
+                    // Fallback: low accuracy (WiFi/Cell — works indoors)
+                    try {
+                        position = await fetchLocation(false);
+                    } catch (secondErr: any) {
+                        throw secondErr; // Let outer catch handle it
+                    }
                 } else {
-                    toast.success("Maps link saved. Please type your address manually.");
+                    throw firstErr;
                 }
-                setLocationLoading(false);
-            },
-            (error) => {
-                // High accuracy failed — retry with low accuracy (faster, works indoors)
-                if (error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE) {
-                    navigator.geolocation.getCurrentPosition(
-                        async (position) => {
-                            const { latitude, longitude } = position.coords;
-                            const mapsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
-                            const address = await reverseGeocode(latitude, longitude);
+            }
 
-                            setFormData((prev) => ({
-                                ...prev,
-                                mapLink: mapsLink,
-                                shopAddress: prev.shopAddress.trim() ? prev.shopAddress : address,
-                                regAddress: prev.regAddress.trim() ? prev.regAddress : address,
-                            }));
+            await applyLocation(position.coords.latitude, position.coords.longitude);
 
-                            if (address) {
-                                toast.success("Address auto-filled! Please review and edit if needed.", { duration: 4000 });
-                            } else {
-                                toast.success("Maps link saved. Please type your address manually.");
-                            }
-                            setLocationLoading(false);
-                        },
-                        (fallbackError) => {
-                            setLocationLoading(false);
-                            handleLocationError(fallbackError);
-                        },
-                        // Low accuracy fallback — uses WiFi/cell, faster & works indoors
-                        { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 }
-                    );
-                    return;
-                }
-                setLocationLoading(false);
-                handleLocationError(error);
-            },
-            // High accuracy attempt — GPS
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-        );
-    };
-
-    const handleLocationError = (error: GeolocationPositionError) => {
-        switch (error.code) {
-            case error.PERMISSION_DENIED:
-                showAppPermissionGuide();
-                break;
-            case error.POSITION_UNAVAILABLE:
-                toast.error(
-                    "Location unavailable. Move to an open area, enable GPS, and try again.",
-                    { duration: 5000 }
-                );
-                break;
-            case error.TIMEOUT:
-                toast.error(
-                    "Location timed out. Check GPS/internet and try again.",
-                    { duration: 5000 }
-                );
-                break;
-            default:
+        } catch (err: any) {
+            const code = err?.code;
+            if (code === 1) {
+                // PERMISSION_DENIED
+                showPermissionGuide();
+            } else if (code === 2) {
+                // POSITION_UNAVAILABLE
+                toast.error("📡 Location unavailable. Move to an open area, enable GPS, then try again.", { duration: 6000 });
+            } else if (code === 3) {
+                // TIMEOUT
+                toast.error("⏱ Location timed out. Check GPS/internet and try again.", { duration: 5000 });
+            } else {
                 toast.error("Unable to get location. Please paste a Google Maps link manually.");
+            }
+        } finally {
+            setLocationLoading(false);
         }
     };
 
@@ -395,7 +384,7 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
                                         {step === 3 && (
                                             <div className="space-y-2 animate-in fade-in slide-in-from-right-2">
 
-                                                {/* Location button at top */}
+                                                {/* Location button */}
                                                 <button
                                                     type="button"
                                                     onClick={handleUseMyLocation}
@@ -408,13 +397,13 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
                                                     }
                                                 </button>
 
-                                                {/* Tip box — shows device-specific instructions */}
-                                                <div className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
-                                                    <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-relaxed">
-                                                        📍 Tap above → Allow location when prompted
+                                                {/* Tip box */}
+                                                <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+                                                    <p className="text-[8px] font-black text-amber-700 uppercase tracking-widest leading-relaxed">
+                                                        📍 Tap above → Allow location when the popup appears
                                                     </p>
-                                                    <p className="text-[7px] font-bold text-slate-400 mt-1 leading-relaxed">
-                                                        If blocked: iPhone → Settings → Privacy → Location Services → Browser → Allow While Using · Android → Settings → Apps → Browser → Permissions → Location → Allow
+                                                    <p className="text-[7px] font-bold text-amber-600 mt-1 leading-relaxed">
+                                                        If blocked → Go to your phone Settings → Apps → Find this app → Permissions → Location → Allow
                                                     </p>
                                                 </div>
 
