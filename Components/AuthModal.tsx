@@ -37,7 +37,8 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
         return (
             lowerLink.includes("maps.google") ||
             lowerLink.includes("goo.gl") ||
-            lowerLink.includes("maps.app.goo.gl")
+            lowerLink.includes("maps.app.goo.gl") ||
+            lowerLink.includes("google.com/maps")
         );
     };
 
@@ -116,119 +117,188 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
         }
     };
 
-    // Reverse geocode coordinates → readable address using OpenStreetMap (free, no API key)
+    // Reverse geocode via our own API route (server-side, works everywhere)
     const reverseGeocode = async (lat: number, lon: number): Promise<string> => {
         try {
-            const res = await fetch(
-                `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
-                { headers: { "Accept-Language": "en" } }
-            );
+            const res = await fetch(`/api/geocode?lat=${lat}&lon=${lon}`);
+            if (!res.ok) return "";
             const data = await res.json();
-
-            if (!data || !data.address) return "";
-
+            if (!data?.address) return "";
             const a = data.address;
-
-            // Build a clean readable address from parts
             const parts = [
-                a.road || a.pedestrian || a.footway || "",
-                a.neighbourhood || a.suburb || a.village || "",
-                a.city || a.town || a.county || "",
+                a.shop || a.amenity || a.building || "",
+                a.road || a.pedestrian || a.footway || a.street || "",
+                a.neighbourhood || a.suburb || a.quarter || "",
+                a.village || a.town || a.city_district || "",
+                a.city || a.county || "",
                 a.state_district || "",
                 a.state || "",
                 a.postcode || "",
             ].filter(Boolean);
-
             return parts.join(", ");
         } catch {
             return "";
         }
     };
 
+    // Detect if running inside a mobile WebView/PWA
+    const isMobileApp = (): boolean => {
+        if (typeof window === "undefined") return false;
+        const ua = navigator.userAgent || "";
+        return (
+            // Android WebView
+            /wv/.test(ua) ||
+            /Version\/[\d.]+.*Chrome\/[\d.]+.*Mobile/.test(ua) ||
+            // iOS WebView (no Safari in UA)
+            (/iPhone|iPad|iPod/.test(ua) && !/Safari/.test(ua)) ||
+            // PWA standalone mode
+            window.matchMedia("(display-mode: standalone)").matches ||
+            (window.navigator as any).standalone === true
+        );
+    };
+
+    const showAppPermissionGuide = () => {
+        const ua = navigator.userAgent || "";
+        const isIOS = /iPhone|iPad|iPod/.test(ua);
+        const isAndroid = /Android/.test(ua);
+
+        if (isIOS) {
+            toast.error(
+                "iPhone: Go to Settings → Privacy & Security → Location Services → Your Browser → While Using App",
+                { duration: 8000 }
+            );
+        } else if (isAndroid) {
+            toast.error(
+                "Android: Go to Settings → Apps → Your Browser → Permissions → Location → Allow",
+                { duration: 8000 }
+            );
+        } else {
+            toast.error(
+                "Please enable location permission in your device settings for this app.",
+                { duration: 6000 }
+            );
+        }
+    };
+
     const handleUseMyLocation = () => {
         if (!navigator.geolocation) {
-            toast.error("Your browser doesn't support location access. Please paste a Google Maps link manually.");
+            toast.error("Location not supported on this device. Please paste a Google Maps link manually.");
             return;
         }
-        if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") {
+
+        // Skip HTTPS check for mobile apps — WebViews often use file:// or custom schemes
+        const isApp = isMobileApp();
+        if (!isApp && window.location.protocol !== "https:" && window.location.hostname !== "localhost") {
             toast.error("Location access requires a secure (HTTPS) connection.");
             return;
         }
 
         setLocationLoading(true);
 
+        // For mobile apps skip the permissions API entirely — it's unreliable in WebViews
+        // Just call getCurrentPosition directly and handle errors in the callback
+        if (isApp) {
+            requestLocation();
+            return;
+        }
+
+        // Desktop/browser: check permission first
         if (navigator.permissions) {
             navigator.permissions.query({ name: "geolocation" }).then((permResult) => {
                 if (permResult.state === "denied") {
                     setLocationLoading(false);
-                    toast.error(
-                        "Location permission is blocked. On iPhone: Settings → Safari → Location → Allow. On Android: Settings → Apps → Browser → Permissions → Location → Allow.",
-                        { duration: 6000 }
-                    );
+                    showAppPermissionGuide();
                     return;
                 }
                 requestLocation();
-            }).catch(() => {
-                requestLocation();
-            });
+            }).catch(() => requestLocation());
         } else {
             requestLocation();
         }
     };
 
     const requestLocation = () => {
+        // Try high accuracy first (GPS on mobile)
         navigator.geolocation.getCurrentPosition(
             async (position) => {
                 const { latitude, longitude } = position.coords;
                 const mapsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
-
-                // Reverse geocode to get human-readable address
                 const address = await reverseGeocode(latitude, longitude);
 
                 setFormData((prev) => ({
                     ...prev,
                     mapLink: mapsLink,
-                    // Auto-fill shopAddress if it's empty; if already filled, don't overwrite
                     shopAddress: prev.shopAddress.trim() ? prev.shopAddress : address,
-                    // Also fill regAddress if empty
                     regAddress: prev.regAddress.trim() ? prev.regAddress : address,
                 }));
 
                 if (address) {
-                    toast.success("Location & address fetched! Please review and edit if needed.", { duration: 4000 });
+                    toast.success("Address auto-filled! Please review and edit if needed.", { duration: 4000 });
                 } else {
-                    toast.success("Location fetched! Address could not be auto-filled — please enter it manually.");
+                    toast.success("Maps link saved. Please type your address manually.");
                 }
-
                 setLocationLoading(false);
             },
             (error) => {
-                setLocationLoading(false);
-                switch (error.code) {
-                    case error.PERMISSION_DENIED:
-                        toast.error(
-                            "Location blocked. On iPhone: Settings → Safari → Location → Allow. On Android: Settings → Apps → Browser → Permissions → Location → Allow.",
-                            { duration: 6000 }
-                        );
-                        break;
-                    case error.POSITION_UNAVAILABLE:
-                        toast.error(
-                            "Location signal unavailable. Please move to an open area or enable GPS, then try again.",
-                            { duration: 5000 }
-                        );
-                        break;
-                    case error.TIMEOUT:
-                        toast.error(
-                            "Location request timed out. Please check your GPS/internet connection and try again.",
-                            { duration: 5000 }
-                        );
-                        break;
-                    default:
-                        toast.error("Unable to get location. Please paste a Google Maps link manually.");
+                // High accuracy failed — retry with low accuracy (faster, works indoors)
+                if (error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE) {
+                    navigator.geolocation.getCurrentPosition(
+                        async (position) => {
+                            const { latitude, longitude } = position.coords;
+                            const mapsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
+                            const address = await reverseGeocode(latitude, longitude);
+
+                            setFormData((prev) => ({
+                                ...prev,
+                                mapLink: mapsLink,
+                                shopAddress: prev.shopAddress.trim() ? prev.shopAddress : address,
+                                regAddress: prev.regAddress.trim() ? prev.regAddress : address,
+                            }));
+
+                            if (address) {
+                                toast.success("Address auto-filled! Please review and edit if needed.", { duration: 4000 });
+                            } else {
+                                toast.success("Maps link saved. Please type your address manually.");
+                            }
+                            setLocationLoading(false);
+                        },
+                        (fallbackError) => {
+                            setLocationLoading(false);
+                            handleLocationError(fallbackError);
+                        },
+                        // Low accuracy fallback — uses WiFi/cell, faster & works indoors
+                        { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 }
+                    );
+                    return;
                 }
+                setLocationLoading(false);
+                handleLocationError(error);
             },
+            // High accuracy attempt — GPS
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
         );
+    };
+
+    const handleLocationError = (error: GeolocationPositionError) => {
+        switch (error.code) {
+            case error.PERMISSION_DENIED:
+                showAppPermissionGuide();
+                break;
+            case error.POSITION_UNAVAILABLE:
+                toast.error(
+                    "Location unavailable. Move to an open area, enable GPS, and try again.",
+                    { duration: 5000 }
+                );
+                break;
+            case error.TIMEOUT:
+                toast.error(
+                    "Location timed out. Check GPS/internet and try again.",
+                    { duration: 5000 }
+                );
+                break;
+            default:
+                toast.error("Unable to get location. Please paste a Google Maps link manually.");
+        }
     };
 
     return (
@@ -325,25 +395,30 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
                                         {step === 3 && (
                                             <div className="space-y-2 animate-in fade-in slide-in-from-right-2">
 
-                                                {/* Location button FIRST — so it auto-fills the textareas below */}
-                                                <div className="space-y-2 mb-1">
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleUseMyLocation}
-                                                        disabled={locationLoading}
-                                                        className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold text-[10px] uppercase flex items-center justify-center gap-2 hover:bg-emerald-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
-                                                    >
-                                                        {locationLoading
-                                                            ? <><Loader2 className="animate-spin" size={14} /> Fetching Location & Address...</>
-                                                            : <><MapPin size={14} /> Auto-Fill Address from My Location</>
-                                                        }
-                                                    </button>
-                                                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest text-center leading-relaxed">
-                                                        Tap above to auto-fill address · You can edit after · Works on Chrome & Safari
+                                                {/* Location button at top */}
+                                                <button
+                                                    type="button"
+                                                    onClick={handleUseMyLocation}
+                                                    disabled={locationLoading}
+                                                    className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold text-[10px] uppercase flex items-center justify-center gap-2 hover:bg-emerald-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                                                >
+                                                    {locationLoading
+                                                        ? <><Loader2 className="animate-spin" size={14} /> Fetching Address...</>
+                                                        : <><MapPin size={14} /> Auto-Fill Address from My Location</>
+                                                    }
+                                                </button>
+
+                                                {/* Tip box — shows device-specific instructions */}
+                                                <div className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
+                                                    <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-relaxed">
+                                                        📍 Tap above → Allow location when prompted
+                                                    </p>
+                                                    <p className="text-[7px] font-bold text-slate-400 mt-1 leading-relaxed">
+                                                        If blocked: iPhone → Settings → Privacy → Location Services → Browser → Allow While Using · Android → Settings → Apps → Browser → Permissions → Location → Allow
                                                     </p>
                                                 </div>
 
-                                                <div className="relative">
+                                                <div>
                                                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Registered Office Address *</p>
                                                     <textarea
                                                         name="regAddress"
@@ -354,7 +429,7 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
                                                     />
                                                 </div>
 
-                                                <div className="relative">
+                                                <div>
                                                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Shop / Delivery Address *</p>
                                                     <textarea
                                                         name="shopAddress"
@@ -365,8 +440,7 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
                                                     />
                                                 </div>
 
-                                                {/* Maps link input with verify button */}
-                                                <div className="relative">
+                                                <div>
                                                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Google Maps Link *</p>
                                                     <div className="relative">
                                                         <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
