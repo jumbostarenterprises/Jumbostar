@@ -6,6 +6,8 @@ import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 import toast, { Toaster } from "react-hot-toast";
 import { useRouter } from "next/navigation";
+import { Geolocation } from "@capacitor/geolocation";
+import { Capacitor } from "@capacitor/core";
 
 export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
     const router = useRouter();
@@ -237,58 +239,50 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
         }
     };
 
-    const handleUseMyLocation = async () => {
-        if (!navigator.geolocation) {
-            toast.error("Location not supported on this device. Please paste a Google Maps link manually.");
-            return;
+const fetchLocationNative = async (): Promise<{ lat: number; lon: number }> => {
+    if (Capacitor.isNativePlatform()) {
+        // Ask for permission explicitly
+        const perm = await Geolocation.requestPermissions();
+        if (perm.location !== "granted") {
+            throw { code: 1 }; // PERMISSION_DENIED
         }
+        const pos = await Geolocation.getCurrentPosition({
+            enableHighAccuracy: true,
+            timeout: 15000,
+        });
+        return { lat: pos.coords.latitude, lon: pos.coords.longitude };
+    } else {
+        // Desktop/browser: use regular geolocation as before
+        return new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(
+                (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+                reject,
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
+        });
+    }
+};
 
-        setLocationLoading(true);
-
-        try {
-            // ── Step 1: Skip the permissions API entirely (unreliable in WebViews)
-            //    Directly call getCurrentPosition — the OS will prompt if needed.
-            let position: GeolocationPosition;
-
-            try {
-                // Try GPS first
-                position = await fetchLocation(true);
-            } catch (firstErr: any) {
-                if (
-                    firstErr.code === firstErr.TIMEOUT ||
-                    firstErr.code === firstErr.POSITION_UNAVAILABLE
-                ) {
-                    // Fallback: low accuracy (WiFi/Cell — works indoors)
-                    try {
-                        position = await fetchLocation(false);
-                    } catch (secondErr: any) {
-                        throw secondErr; // Let outer catch handle it
-                    }
-                } else {
-                    throw firstErr;
-                }
-            }
-
-            await applyLocation(position.coords.latitude, position.coords.longitude);
-
-        } catch (err: any) {
-            const code = err?.code;
-            if (code === 1) {
-                // PERMISSION_DENIED
-                showPermissionGuide();
-            } else if (code === 2) {
-                // POSITION_UNAVAILABLE
-                toast.error("📡 Location unavailable. Move to an open area, enable GPS, then try again.", { duration: 6000 });
-            } else if (code === 3) {
-                // TIMEOUT
-                toast.error("⏱ Location timed out. Check GPS/internet and try again.", { duration: 5000 });
-            } else {
-                toast.error("Unable to get location. Please paste a Google Maps link manually.");
-            }
-        } finally {
-            setLocationLoading(false);
+const handleUseMyLocation = async () => {
+    setLocationLoading(true);
+    try {
+        const { lat, lon } = await fetchLocationNative();
+        await applyLocation(lat, lon);
+    } catch (err: any) {
+        const code = err?.code;
+        if (code === 1) {
+            showPermissionGuide();
+        } else if (code === 2) {
+            toast.error("📡 Location unavailable. Enable GPS and try again.", { duration: 6000 });
+        } else if (code === 3) {
+            toast.error("⏱ Location timed out. Check GPS and try again.", { duration: 5000 });
+        } else {
+            toast.error("Unable to get location. Paste a Google Maps link manually.");
         }
-    };
+    } finally {
+        setLocationLoading(false);
+    }
+};
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-2">
