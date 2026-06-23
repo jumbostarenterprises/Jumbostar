@@ -116,6 +116,35 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
         }
     };
 
+    // Reverse geocode coordinates → readable address using OpenStreetMap (free, no API key)
+    const reverseGeocode = async (lat: number, lon: number): Promise<string> => {
+        try {
+            const res = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`,
+                { headers: { "Accept-Language": "en" } }
+            );
+            const data = await res.json();
+
+            if (!data || !data.address) return "";
+
+            const a = data.address;
+
+            // Build a clean readable address from parts
+            const parts = [
+                a.road || a.pedestrian || a.footway || "",
+                a.neighbourhood || a.suburb || a.village || "",
+                a.city || a.town || a.county || "",
+                a.state_district || "",
+                a.state || "",
+                a.postcode || "",
+            ].filter(Boolean);
+
+            return parts.join(", ");
+        } catch {
+            return "";
+        }
+    };
+
     const handleUseMyLocation = () => {
         if (!navigator.geolocation) {
             toast.error("Your browser doesn't support location access. Please paste a Google Maps link manually.");
@@ -125,12 +154,17 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
             toast.error("Location access requires a secure (HTTPS) connection.");
             return;
         }
+
         setLocationLoading(true);
+
         if (navigator.permissions) {
             navigator.permissions.query({ name: "geolocation" }).then((permResult) => {
                 if (permResult.state === "denied") {
                     setLocationLoading(false);
-                    toast.error("Location permission is blocked. Please enable it in your browser/phone settings → Site Settings → Location.", { duration: 5000 });
+                    toast.error(
+                        "Location permission is blocked. On iPhone: Settings → Safari → Location → Allow. On Android: Settings → Apps → Browser → Permissions → Location → Allow.",
+                        { duration: 6000 }
+                    );
                     return;
                 }
                 requestLocation();
@@ -144,24 +178,50 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
 
     const requestLocation = () => {
         navigator.geolocation.getCurrentPosition(
-            (position) => {
+            async (position) => {
                 const { latitude, longitude } = position.coords;
                 const mapsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
-                setFormData((prev) => ({ ...prev, mapLink: mapsLink }));
-                toast.success("Location fetched! You can verify it by opening the link.");
+
+                // Reverse geocode to get human-readable address
+                const address = await reverseGeocode(latitude, longitude);
+
+                setFormData((prev) => ({
+                    ...prev,
+                    mapLink: mapsLink,
+                    // Auto-fill shopAddress if it's empty; if already filled, don't overwrite
+                    shopAddress: prev.shopAddress.trim() ? prev.shopAddress : address,
+                    // Also fill regAddress if empty
+                    regAddress: prev.regAddress.trim() ? prev.regAddress : address,
+                }));
+
+                if (address) {
+                    toast.success("Location & address fetched! Please review and edit if needed.", { duration: 4000 });
+                } else {
+                    toast.success("Location fetched! Address could not be auto-filled — please enter it manually.");
+                }
+
                 setLocationLoading(false);
             },
             (error) => {
                 setLocationLoading(false);
                 switch (error.code) {
                     case error.PERMISSION_DENIED:
-                        toast.error("Location blocked. On iPhone: Settings → Safari → Location → Allow. On Android: Settings → Apps → Browser → Permissions → Location → Allow.", { duration: 6000 });
+                        toast.error(
+                            "Location blocked. On iPhone: Settings → Safari → Location → Allow. On Android: Settings → Apps → Browser → Permissions → Location → Allow.",
+                            { duration: 6000 }
+                        );
                         break;
                     case error.POSITION_UNAVAILABLE:
-                        toast.error("Location signal unavailable. Please move to an open area or enable GPS, then try again.", { duration: 5000 });
+                        toast.error(
+                            "Location signal unavailable. Please move to an open area or enable GPS, then try again.",
+                            { duration: 5000 }
+                        );
                         break;
                     case error.TIMEOUT:
-                        toast.error("Location request timed out. Please check your GPS/internet connection and try again.", { duration: 5000 });
+                        toast.error(
+                            "Location request timed out. Please check your GPS/internet connection and try again.",
+                            { duration: 5000 }
+                        );
                         break;
                     default:
                         toast.error("Unable to get location. Please paste a Google Maps link manually.");
@@ -264,11 +324,50 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
 
                                         {step === 3 && (
                                             <div className="space-y-2 animate-in fade-in slide-in-from-right-2">
-                                                <textarea name="regAddress" onChange={handleChange} value={formData.regAddress} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-[10px] h-16 resize-none focus:border-slate-300 transition-all" placeholder="REGISTERED OFFICE ADDRESS *" />
-                                                <textarea name="shopAddress" onChange={handleChange} value={formData.shopAddress} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-[10px] h-16 resize-none focus:border-slate-300 transition-all" placeholder="SHOP / DELIVERY ADDRESS *" />
 
-                                                <div className="space-y-2">
-                                                    {/* Maps link input with verify button */}
+                                                {/* Location button FIRST — so it auto-fills the textareas below */}
+                                                <div className="space-y-2 mb-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleUseMyLocation}
+                                                        disabled={locationLoading}
+                                                        className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold text-[10px] uppercase flex items-center justify-center gap-2 hover:bg-emerald-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                                                    >
+                                                        {locationLoading
+                                                            ? <><Loader2 className="animate-spin" size={14} /> Fetching Location & Address...</>
+                                                            : <><MapPin size={14} /> Auto-Fill Address from My Location</>
+                                                        }
+                                                    </button>
+                                                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest text-center leading-relaxed">
+                                                        Tap above to auto-fill address · You can edit after · Works on Chrome & Safari
+                                                    </p>
+                                                </div>
+
+                                                <div className="relative">
+                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Registered Office Address *</p>
+                                                    <textarea
+                                                        name="regAddress"
+                                                        onChange={handleChange}
+                                                        value={formData.regAddress}
+                                                        className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-[10px] h-16 resize-none focus:border-slate-300 transition-all"
+                                                        placeholder="Auto-filled from location or type manually..."
+                                                    />
+                                                </div>
+
+                                                <div className="relative">
+                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Shop / Delivery Address *</p>
+                                                    <textarea
+                                                        name="shopAddress"
+                                                        onChange={handleChange}
+                                                        value={formData.shopAddress}
+                                                        className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-[10px] h-16 resize-none focus:border-slate-300 transition-all"
+                                                        placeholder="Auto-filled from location or type manually..."
+                                                    />
+                                                </div>
+
+                                                {/* Maps link input with verify button */}
+                                                <div className="relative">
+                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Google Maps Link *</p>
                                                     <div className="relative">
                                                         <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                                                             <Globe size={16} />
@@ -276,7 +375,7 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
                                                         <input
                                                             name="mapLink"
                                                             type="text"
-                                                            placeholder="PASTE GOOGLE MAPS LINK HERE"
+                                                            placeholder="Auto-filled or paste manually..."
                                                             onChange={handleChange}
                                                             value={formData.mapLink}
                                                             className="w-full pl-12 pr-24 py-4 bg-slate-50 border-2 border-slate-100 focus:border-red-500/20 rounded-xl outline-none font-bold text-xs text-slate-900 transition-all placeholder:text-slate-400"
@@ -287,23 +386,6 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
                                                             </a>
                                                         )}
                                                     </div>
-
-                                                    {/* Use My Location button */}
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleUseMyLocation}
-                                                        disabled={locationLoading}
-                                                        className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold text-[10px] uppercase flex items-center justify-center gap-2 hover:bg-emerald-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
-                                                    >
-                                                        {locationLoading
-                                                            ? <><Loader2 className="animate-spin" size={14} /> Fetching Location...</>
-                                                            : <><MapPin size={14} /> Use My Current Location</>
-                                                        }
-                                                    </button>
-
-                                                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest text-center leading-relaxed">
-                                                        Allow location access when prompted · Works on Chrome, Safari & all major browsers
-                                                    </p>
                                                 </div>
 
                                                 <div className="flex gap-2 pt-1">
