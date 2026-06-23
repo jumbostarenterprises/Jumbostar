@@ -1,4 +1,4 @@
-package com.prashanthischool.app; // change to your package
+package com.jumbostar.app;
 
 import android.webkit.GeolocationPermissions;
 import android.webkit.WebChromeClient;
@@ -7,7 +7,7 @@ import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     @Override
-    protected void onStart() {
+    public void onStart() {
         super.onStart();
         WebView webView = getBridge().getWebView();
         webView.getSettings().setGeolocationEnabled(true);
