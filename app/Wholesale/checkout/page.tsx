@@ -7,9 +7,15 @@ import Link from "next/link";
 import {
     MapPin, Loader2, ShieldCheck, Package, Building2, Store,
     Wallet, CheckCircle2, Info, ArrowLeft, Plus, AlertTriangle, ChevronRight,
-    Banknote, Smartphone, Camera, Upload, FileText, X, CreditCard, QrCode, AlertCircle
+    Banknote, Smartphone, Camera, Upload, FileText, X, CreditCard, QrCode, AlertCircle, Tag,
+    PartyPopper, Truck, PiggyBank
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
+
+interface Tier {
+    min_qty: number;
+    price: string;
+}
 
 export default function CheckoutPage() {
     const router = useRouter();
@@ -33,12 +39,22 @@ export default function CheckoutPage() {
         full_name: "", phone: "", street_address: "", city: "", state: "", pincode: ""
     });
     const [paymentType, setPaymentType] = useState<'full' | 'cod'>('full');
-    
+
     // Payment Logic
     const [total, setTotal] = useState(0);
     const [subtotal, setSubtotal] = useState(0);
-    const [paymentMethod, setPaymentMethod] = useState<'bank' | 'upi' | 'cod'>('cod'); // <-- FIXED: Changed default to 'cod'
-    
+    const [paymentMethod, setPaymentMethod] = useState<'bank' | 'upi' | 'cod'>('cod');
+
+    // ── SUCCESS POPUP STATE ──
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [successData, setSuccessData] = useState<{
+        orderId: string;
+        savedAmount: number;
+        deliveryLabel: string;
+        deliveryDateStr: string;
+        isSameDay: boolean;
+    } | null>(null);
+
     useEffect(() => {
         if (paymentMethod === "cod") {
             setPaymentType("cod");
@@ -56,11 +72,54 @@ export default function CheckoutPage() {
     const [showPaymentProof, setShowPaymentProof] = useState(false);
     const payableNow = paymentType === "full" ? total : 0;
     const remainingBalance = paymentType === "cod" ? total : 0;
-    const isAmountTooLow = total < 500; // you can change 500 to your minimum amount
+    const isAmountTooLow = total < 500;
 
     useEffect(() => {
         loadData();
     }, []);
+
+    const calculateItemPrice = (item: any): number => {
+        const variant = item.product_variants;
+        const qty = item.quantity;
+        const tiers: Tier[] = variant.variant_tiers || [];
+        const applicableTier = [...tiers]
+            .sort((a, b) => b.min_qty - a.min_qty)
+            .find(t => qty >= t.min_qty);
+        return applicableTier ? parseFloat(applicableTier.price) : variant.wholesale_price;
+    };
+
+    // ── Computes total bulk-tier savings across the whole cart ──
+    const calculateTotalSavings = (): number => {
+        return cartItems.reduce((acc, item) => {
+            const variant = item.product_variants;
+            const basePrice = variant.wholesale_price;
+            const actualPrice = calculateItemPrice(item);
+            const savingPerUnit = basePrice - actualPrice;
+            return acc + (savingPerUnit > 0 ? savingPerUnit * item.quantity : 0);
+        }, 0);
+    };
+
+    // ── 3 PM cutoff delivery rule ──
+    const getDeliveryEstimate = () => {
+        const now = new Date();
+        const CUTOFF_HOUR = 15; // 3 PM
+        const isSameDay = now.getHours() < CUTOFF_HOUR;
+
+        const deliveryDate = new Date(now);
+        if (!isSameDay) deliveryDate.setDate(deliveryDate.getDate() + 1);
+
+        const dateStr = deliveryDate.toLocaleDateString("en-IN", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+        });
+
+        return {
+            isSameDay,
+            deliveryLabel: isSameDay ? "Today" : "Tomorrow",
+            deliveryDateStr: dateStr,
+        };
+    };
 
     const loadData = async () => {
         try {
@@ -69,14 +128,12 @@ export default function CheckoutPage() {
 
             const user = JSON.parse(userStr);
 
-            // 1️⃣ LOAD BANK DETAILS (Admin)
             const { data: bankData } = await supabase
                 .from("bank_details")
                 .select("*")
                 .single();
             setBankDetails(bankData);
 
-            // 2️⃣ LOAD PROFILE FIRST
             const { data: profile } = await supabase
                 .from("wholesale_users")
                 .select("*")
@@ -85,7 +142,6 @@ export default function CheckoutPage() {
 
             const transport = profile?.transport_charge || 0;
             const handling = profile?.handling_fees || 0;
-
 
             setTransportCharge(transport);
             setHandlingCharge(handling);
@@ -108,7 +164,6 @@ export default function CheckoutPage() {
                 setSelectedAddressText(profile.registered_address);
             }
 
-            // 3️⃣ LOAD CART
             const { data: cart } = await supabase
                 .from("cart")
                 .select(`
@@ -119,6 +174,7 @@ export default function CheckoutPage() {
                         variant,
                         unit,
                         wholesale_price,
+                        variant_tiers (*),
                         products(
                             name,
                             brand,
@@ -135,22 +191,17 @@ export default function CheckoutPage() {
 
             setCartItems(cart);
 
-            // 4️⃣ CALCULATE TOTALS
             const calcSubtotal = cart.reduce(
                 (acc: number, item: any) =>
-                    acc + item.quantity * item.product_variants.wholesale_price,
+                    acc + item.quantity * calculateItemPrice(item),
                 0
             );
 
-            const grandTotal =
-                calcSubtotal +
-                transport +
-                handlingCharge;
+            const grandTotal = calcSubtotal + transport + handling;
 
             setSubtotal(calcSubtotal);
-            setTotal(grandTotal); 
-          
-            // 5️⃣ LOAD EXTRA ADDRESSES
+            setTotal(grandTotal);
+
             const { data: addr } = await supabase
                 .from("addresses")
                 .select("*")
@@ -164,8 +215,6 @@ export default function CheckoutPage() {
             setLoading(false);
         }
     };
-
-
 
     const handlePaymentProofSubmit = async () => {
         if (paymentMethod === "cod") {
@@ -189,7 +238,6 @@ export default function CheckoutPage() {
             const userStr = localStorage.getItem("wholesale_user");
             const user = JSON.parse(userStr || "{}");
 
-            // Generate Custom Order ID
             const now = new Date();
             const dateStr = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}${now.getFullYear()}`;
 
@@ -199,19 +247,26 @@ export default function CheckoutPage() {
 
             const customId = `JS-${dateStr}${String((count || 0) + 1).padStart(4, "0")}`;
 
-            // Format Items Snapshot
-            const orderItemsSnapshot = cartItems.map((item: any) => ({
-                product_name: item.product_variants.products.name,
-                variant_name: item.product_variants.variant,
-                unit: item.product_variants.unit,
-                quantity: item.quantity,
-                price_at_purchase: item.product_variants.wholesale_price,
-                subtotal: item.quantity * item.product_variants.wholesale_price,
-                image:
-                    item.product_variants.products.product_images?.[0]?.image_url || null
-            }));
+            const orderItemsSnapshot = cartItems.map((item: any) => {
+                const unitPrice = calculateItemPrice(item);
+                return {
+                    product_name: item.product_variants.products.name,
+                    variant_name: item.product_variants.variant,
+                    unit: item.product_variants.unit,
+                    quantity: item.quantity,
+                    price_at_purchase: unitPrice,
+                    subtotal: item.quantity * unitPrice,
+                    image:
+                        item.product_variants.products.product_images?.[0]?.image_url || null
+                };
+            });
 
-            // Prepare Order Data
+            // ── Delivery estimate computed at the moment of placing the order ──
+            // NOTE: only used for the popup below — not persisted to the DB,
+            // since 'orders' has no expected_delivery_date column yet.
+            const { isSameDay, deliveryLabel, deliveryDateStr } = getDeliveryEstimate();
+            const savedAmount = calculateTotalSavings();
+
             const orderData = {
 
                 order_id_custom: customId,
@@ -245,6 +300,8 @@ export default function CheckoutPage() {
 
                 items: orderItemsSnapshot,
 
+                // expected_delivery_date removed — column doesn't exist in 'orders' table yet
+
                 balance_due_date: new Date(
                     Date.now() + 10 * 24 * 60 * 60 * 1000
                 )
@@ -252,7 +309,6 @@ export default function CheckoutPage() {
                     .split("T")[0]
             };
 
-            // Insert Order
             const { data: order, error: insertError } = await supabase
                 .from("orders")
                 .insert([orderData])
@@ -261,7 +317,6 @@ export default function CheckoutPage() {
 
             if (insertError) throw insertError;
 
-            // Decrement stock atomically (throws if any item is out of stock)
             const stockPayload = cartItems.map((item: any) => ({
                 variant_id: item.product_variants.id,
                 quantity: item.quantity
@@ -273,7 +328,6 @@ export default function CheckoutPage() {
             );
 
             if (stockError) {
-                // Roll back the order we just created since stock couldn't be reserved
                 await supabase.from("orders").delete().eq("id", order.id);
                 throw new Error(
                     stockError.message?.includes("Insufficient stock")
@@ -284,7 +338,6 @@ export default function CheckoutPage() {
 
             let screenshotUrl: string | null = null;
 
-            // Upload Payment Proof
             if (transactionDetails.photo) {
 
                 const fileExt = transactionDetails.photo.name.split(".").pop();
@@ -312,7 +365,6 @@ export default function CheckoutPage() {
                 }
             }
 
-            // Save Payment Record
             if (paymentMethod !== "cod") {
                 const { error: paymentError } = await supabase
                     .from("payments")
@@ -340,7 +392,6 @@ export default function CheckoutPage() {
                 }
             }
 
-            // Clear Cart
             await supabase
                 .from("cart")
                 .delete()
@@ -348,11 +399,16 @@ export default function CheckoutPage() {
 
             window.dispatchEvent(new Event("cartUpdated"));
 
-            toast.success(
-                "Order placed successfully! "
-            );
-
-            router.push("/Wholesale/orders");
+            // ── Close the payment popup, show the success/savings/delivery popup instead of redirecting immediately ──
+            setShowPaymentPopup(false);
+            setSuccessData({
+                orderId: customId,
+                savedAmount,
+                deliveryLabel,
+                deliveryDateStr,
+                isSameDay,
+            });
+            setShowSuccessModal(true);
 
         } catch (err: any) {
 
@@ -376,8 +432,6 @@ export default function CheckoutPage() {
         }
     };
 
-
-    // Add these missing handler functions
     const handleInputChange = (
         e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
     ) => {
@@ -450,7 +504,7 @@ export default function CheckoutPage() {
 
                 {/* LEFT SIDE: DETAILS */}
                 <div className="lg:col-span-8 space-y-8">
-                    {/* SHIPPING ADDRESS SECTION - SAME AS BEFORE */}
+                    {/* SHIPPING ADDRESS SECTION */}
                     <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm">
                         <div className="flex justify-between items-center mb-8">
                             <h3 className="text-sm font-black uppercase tracking-tighter text-slate-900 flex items-center gap-2">
@@ -530,7 +584,7 @@ export default function CheckoutPage() {
                         )}
                     </div>
 
-                    {/* ORDER MANIFEST - SAME AS BEFORE */}
+                    {/* ORDER MANIFEST — SHOWS BULK PRICE + BADGE */}
                     <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
                         <div className="bg-slate-50/50 px-8 py-5 border-b border-slate-100 flex justify-between">
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Item Breakdown</span>
@@ -541,6 +595,8 @@ export default function CheckoutPage() {
                                 const variant = item.product_variants;
                                 const product = variant.products;
                                 const img = product.product_images?.[0]?.image_url;
+                                const unitPrice = calculateItemPrice(item);
+                                const isTiered = unitPrice !== variant.wholesale_price;
                                 return (
                                     <div key={i} className="p-6 flex items-center justify-between group">
                                         <div className="flex gap-5 items-center">
@@ -549,11 +605,19 @@ export default function CheckoutPage() {
                                             </div>
                                             <div>
                                                 <h4 className="font-black text-slate-900 uppercase text-xs mb-0.5">{product.name}</h4>
-                                                <p className="text-[9px] text-slate-400 font-bold tracking-tighter">Qty: {item.quantity}</p>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <p className="text-[9px] text-slate-400 font-bold tracking-tighter">Qty: {item.quantity}</p>
+                                                    {isTiered && (
+                                                        <span className="bg-green-50 text-green-600 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter flex items-center gap-1">
+                                                            <Tag size={8} /> Bulk Price
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <span className="font-black text-slate-900 text-sm">{variant.variant} - {variant.unit}</span>
+                                                <p className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">₹{unitPrice}/unit</p>
                                             </div>
                                         </div>
-                                        <span className="font-black text-slate-900 text-sm">₹{(item.quantity * variant.wholesale_price).toLocaleString()}</span>
+                                        <span className="font-black text-slate-900 text-sm">₹{(item.quantity * unitPrice).toLocaleString()}</span>
                                     </div>
                                 );
                             })}
@@ -565,7 +629,6 @@ export default function CheckoutPage() {
                 <div className="lg:col-span-4">
                     <div className="bg-white rounded-[3rem] border border-slate-900 shadow-2xl overflow-hidden sticky top-28 transition-all">
 
-                        {/* Summary Header */}
                         <div className="bg-slate-900 p-8 text-white">
                             <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                                 <ShieldCheck size={14} /> Verified Wholesale Order
@@ -596,10 +659,8 @@ export default function CheckoutPage() {
                             </div>
                         </div>
 
-                        {/* Interactive Payment Section */}
                         <div className="p-8 space-y-8">
 
-                            {/* FIXED BUTTON - Always clickable, opens popup */}
                             <button
                                 onClick={() => {
                                     if (!selectedAddressId || !selectedAddressText) {
@@ -634,7 +695,6 @@ export default function CheckoutPage() {
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
                     <div className="bg-white rounded-[2.5rem] max-w-5xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
 
-                        {/* Header Section - Clean White/Slate */}
                         <div className="bg-white border-b border-slate-100 p-6 flex items-center justify-between shrink-0">
                             <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center">
@@ -656,7 +716,6 @@ export default function CheckoutPage() {
                         <div className="overflow-y-auto custom-scrollbar bg-white">
                             {bankDetails ? (
                                 <div className="p-8">
-                                    {/* Top Row: Info Cards */}
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                                         <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
                                             <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">Total Amount</span>
@@ -665,7 +724,6 @@ export default function CheckoutPage() {
 
                                         <div className="md:col-span-2 flex bg-slate-50 p-1.5 rounded-3xl border border-slate-100">
 
-                                            {/* COD */}
                                             <button
                                                 onClick={() => setPaymentMethod('cod')}
                                                 className={`flex-1 py-3 rounded-2xl font-black text-[11px] ${paymentMethod === 'cod' ? 'bg-white shadow-sm' : 'text-slate-400'
@@ -674,7 +732,6 @@ export default function CheckoutPage() {
                                                 COD
                                             </button>
 
-                                            {/* UPI */}
                                             <button
                                                 onClick={() => setPaymentMethod('upi')}
                                                 className={`flex-1 py-3 rounded-2xl font-black text-[11px] ${paymentMethod === 'upi' ? 'bg-white shadow-sm' : 'text-slate-400'
@@ -682,8 +739,7 @@ export default function CheckoutPage() {
                                             >
                                                 UPI
                                             </button>
-                                            
-                                            {/* BANK */}
+
                                             <button
                                                 onClick={() => setPaymentMethod('bank')}
                                                 className={`flex-1 py-3 rounded-2xl font-black text-[11px] ${paymentMethod === 'bank' ? 'bg-white shadow-sm' : 'text-slate-400'
@@ -692,14 +748,11 @@ export default function CheckoutPage() {
                                                 Bank
                                             </button>
 
-
                                         </div>
                                     </div>
 
-                                    {/* Main Horizontal Workspace */}
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
 
-                                        {/* Left: Credentials Display */}
                                         <div className="space-y-6">
                                             <h4 className="text-xs font-black text-slate-900 uppercase tracking-[0.2em] px-2">
                                                 Payment Details
@@ -751,7 +804,6 @@ export default function CheckoutPage() {
                                                     </p>
                                                 </div>
                                             ) : (
-                                                /* ✅ COD NOW COMES HERE (LEFT SIDE NEXT TO GRID) */
                                                 <div className="space-y-4">
                                                     <div className="bg-yellow-50 border border-yellow-200 p-6 rounded-2xl text-center">
                                                         <p className="text-xs font-black text-yellow-700 uppercase">
@@ -777,7 +829,6 @@ export default function CheckoutPage() {
                                             )}
                                         </div>
 
-                                        {/* Right: Verification Form */}
                                         <div className="space-y-6">
                                             {paymentMethod !== 'cod' && (
                                                 <>
@@ -796,7 +847,6 @@ export default function CheckoutPage() {
                                                                     ...prev,
                                                                     [paymentMethod === 'bank' ? 'transactionId' : 'utrNumber']: e.target.value
                                                                 }))}
-                                                                /* FIXED: text-slate-900 for visibility */
                                                                 className="w-full bg-slate-50 border-2 border-slate-100 p-5 rounded-2xl font-bold text-slate-900 placeholder:text-slate-300 focus:border-slate-900 focus:bg-white outline-none transition-all"
                                                             />
                                                         </div>
@@ -821,7 +871,6 @@ export default function CheckoutPage() {
                                                         </label>
                                                     </div>
 
-                                                    {/* Final Action - ENABLED ONLY AFTER FILE UPLOAD */}
                                                     <button
                                                         onClick={handlePaymentProofSubmit}
                                                         disabled={!transactionDetails.photo || payLoading}
@@ -852,6 +901,74 @@ export default function CheckoutPage() {
                                     <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">Gateway Configuration Required</p>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── SUCCESS + SAVINGS + DELIVERY POPUP ── */}
+            {showSuccessModal && successData && (
+                <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in duration-300">
+                    <div className="bg-white rounded-[2.5rem] max-w-md w-full shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
+
+                        {/* Celebration header */}
+                        <div className="bg-slate-900 pt-10 pb-14 px-8 text-center relative">
+                            <div className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/30">
+                                <CheckCircle2 className="text-white" size={32} />
+                            </div>
+                            <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Order Confirmed!</h2>
+                            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-1">
+                                Order ID: {successData.orderId}
+                            </p>
+                        </div>
+
+                        {/* Overlapping cards */}
+                        <div className="px-6 -mt-8 space-y-3 pb-8">
+
+                            {/* Savings card */}
+                            {successData.savedAmount > 0 && (
+                                <div className="bg-white border-2 border-emerald-100 rounded-[1.75rem] p-5 shadow-lg flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center shrink-0">
+                                        <PiggyBank className="text-emerald-600" size={22} />
+                                    </div>
+                                    <div>
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">You Saved</p>
+                                        <p className="text-2xl font-black text-emerald-600 tracking-tighter">
+                                            ₹{successData.savedAmount.toLocaleString()}
+                                        </p>
+                                        <p className="text-[9px] font-bold text-slate-400">with bulk pricing on this order</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Delivery card */}
+                            <div className="bg-white border-2 border-slate-100 rounded-[1.75rem] p-5 shadow-lg flex items-center gap-4">
+                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${successData.isSameDay ? "bg-red-50" : "bg-slate-50"}`}>
+                                    <Truck className={successData.isSameDay ? "text-red-600" : "text-slate-600"} size={22} />
+                                </div>
+                                <div>
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Expected Delivery</p>
+                                    <p className="text-lg font-black text-slate-900 tracking-tight">
+                                        {successData.deliveryLabel}
+                                        <span className="text-slate-400 font-bold text-xs ml-2">({successData.deliveryDateStr})</span>
+                                    </p>
+                                    <p className="text-[9px] font-bold text-slate-400">
+                                        {successData.isSameDay
+                                            ? "Placed before 3 PM — dispatched today"
+                                            : "Placed after 3 PM — dispatched next business day"}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={() => {
+                                    setShowSuccessModal(false);
+                                    router.push("/Wholesale/orders");
+                                }}
+                                className="w-full py-4 mt-4 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-red-600 transition-colors flex items-center justify-center gap-2"
+                            >
+                                View My Orders <ChevronRight size={16} />
+                            </button>
                         </div>
                     </div>
                 </div>

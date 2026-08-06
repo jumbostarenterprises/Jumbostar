@@ -9,7 +9,15 @@ import { useRouter } from "next/navigation";
 import { Geolocation } from "@capacitor/geolocation";
 import { Capacitor } from "@capacitor/core";
 
-export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+export default function AuthModal({
+    isOpen,
+    onClose,
+    mandatory = false,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    mandatory?: boolean;
+}) {
     const router = useRouter();
     const [isLogin, setIsLogin] = useState(true);
     const [step, setStep] = useState(1);
@@ -74,24 +82,35 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
         }));
     };
 
+    // --- SIMPLE PHONE LOGIN, NO OTP ---
     const handleLogin = async () => {
         if (!validatePhone(formData.phone)) return toast.error("Enter a valid 10-digit phone");
         setLoading(true);
         try {
-            const { data, error } = await supabase.from("wholesale_users").select("*").eq("phone", formData.phone).maybeSingle();
-            if (error) throw error;
-            if (!data) return toast.error("Mobile number not registered");
-            if (data.status !== "approved") return toast.error(`Account Status: ${data.status.toUpperCase()}`);
-            localStorage.setItem("wholesale_user", JSON.stringify(data));
+            // Check if user is registered and approved in the custom table
+            const { data: userData, error: userError } = await supabase
+                .from("wholesale_users")
+                .select("*")
+                .eq("phone", formData.phone)
+                .maybeSingle();
+
+            if (userError) throw userError;
+            if (!userData) return toast.error("Mobile number not registered");
+            if (userData.status !== "approved") return toast.error(`Account Status: ${userData.status.toUpperCase()}`);
+
+            // Log the user in directly — no OTP verification
+            localStorage.setItem("wholesale_user", JSON.stringify(userData));
             window.dispatchEvent(new Event("wholesale_login"));
+            toast.success("Logged in successfully!");
             onClose();
             router.push("/Wholesale/home");
         } catch (err: any) {
-            toast.error(err.message);
+            toast.error(err.message || "Login failed");
         } finally {
             setLoading(false);
         }
     };
+    // ---------------------------------------
 
     const handleRegister = async () => {
         if (!checkStep3()) return;
@@ -142,30 +161,14 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
         }
     };
 
-    // ─── IMPROVED: covers all WebView signatures including custom schemes ───
     const isMobileWebView = (): boolean => {
         if (typeof window === "undefined") return false;
         const ua = navigator.userAgent || "";
-
-        const isAndroidWebView =
-            /Android/.test(ua) && /wv/.test(ua);
-
-        const isAndroidWebViewAlt =
-            /Android/.test(ua) &&
-            /Version\/[\d.]+ Chrome\/[\d.]+/.test(ua) &&
-            !/Chrome\/[\d.]+ Mobile Safari/.test(ua);
-
-        const isIOSWebView =
-            /iPhone|iPad|iPod/.test(ua) && !/Safari\//.test(ua);
-
-        const isPWA =
-            window.matchMedia?.("(display-mode: standalone)").matches ||
-            (window.navigator as any).standalone === true;
-
-        // Custom app scheme (file://, capacitor://, ionic://, etc.)
-        const isCustomScheme =
-            !["https:", "http:"].includes(window.location.protocol);
-
+        const isAndroidWebView = /Android/.test(ua) && /wv/.test(ua);
+        const isAndroidWebViewAlt = /Android/.test(ua) && /Version\/[\d.]+ Chrome\/[\d.]+/.test(ua) && !/Chrome\/[\d.]+ Mobile Safari/.test(ua);
+        const isIOSWebView = /iPhone|iPad|iPod/.test(ua) && !/Safari\//.test(ua);
+        const isPWA = window.matchMedia?.("(display-mode: standalone)").matches || (window.navigator as any).standalone === true;
+        const isCustomScheme = !["https:", "http:"].includes(window.location.protocol);
         return isAndroidWebView || isAndroidWebViewAlt || isIOSWebView || isPWA || isCustomScheme;
     };
 
@@ -176,51 +179,22 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
         const isWebView = isMobileWebView();
 
         if (isWebView) {
-            // Inside the app — guide them to device settings, not browser
             if (isIOS) {
-                toast.error(
-                    "📍 iPhone: Settings → Privacy & Security → Location Services → Find our App → Change to 'While Using'",
-                    { duration: 10000 }
-                );
+                toast.error("📍 iPhone: Settings → Privacy & Security → Location Services → Find our App → Change to 'While Using'", { duration: 10000 });
             } else if (isAndroid) {
-                toast.error(
-                    "📍 Android: Settings → Apps → Find our App → Permissions → Location → Allow",
-                    { duration: 10000 }
-                );
+                toast.error("📍 Android: Settings → Apps → Find our App → Permissions → Location → Allow", { duration: 10000 });
             } else {
                 toast.error("📍 Please enable Location permission for this app in your device Settings.", { duration: 8000 });
             }
         } else {
-            // Browser
             if (isIOS) {
-                toast.error(
-                    "📍 iPhone: Settings → Safari → Location → Allow",
-                    { duration: 8000 }
-                );
+                toast.error("📍 iPhone: Settings → Safari → Location → Allow", { duration: 8000 });
             } else if (isAndroid) {
-                toast.error(
-                    "📍 Android: Settings → Apps → Chrome → Permissions → Location → Allow",
-                    { duration: 8000 }
-                );
+                toast.error("📍 Android: Settings → Apps → Chrome → Permissions → Location → Allow", { duration: 8000 });
             } else {
                 toast.error("📍 Click the lock icon in your browser address bar and allow Location.", { duration: 6000 });
             }
         }
-    };
-
-    // ─── Core location fetch — direct call, no permissions API ───
-    const fetchLocation = (highAccuracy: boolean): Promise<GeolocationPosition> => {
-        return new Promise((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(
-                resolve,
-                reject,
-                {
-                    enableHighAccuracy: highAccuracy,
-                    timeout: highAccuracy ? 15000 : 20000,
-                    maximumAge: highAccuracy ? 0 : 60000,
-                }
-            );
-        });
     };
 
     const applyLocation = async (lat: number, lon: number) => {
@@ -239,55 +213,56 @@ export default function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClos
         }
     };
 
-const fetchLocationNative = async (): Promise<{ lat: number; lon: number }> => {
-    if (Capacitor.isNativePlatform()) {
-        // Ask for permission explicitly
-        const perm = await Geolocation.requestPermissions();
-        if (perm.location !== "granted") {
-            throw { code: 1 }; // PERMISSION_DENIED
-        }
-        const pos = await Geolocation.getCurrentPosition({
-            enableHighAccuracy: true,
-            timeout: 15000,
-        });
-        return { lat: pos.coords.latitude, lon: pos.coords.longitude };
-    } else {
-        // Desktop/browser: use regular geolocation as before
-        return new Promise((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(
-                (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
-                reject,
-                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-            );
-        });
-    }
-};
-
-const handleUseMyLocation = async () => {
-    setLocationLoading(true);
-    try {
-        const { lat, lon } = await fetchLocationNative();
-        await applyLocation(lat, lon);
-    } catch (err: any) {
-        const code = err?.code;
-        if (code === 1) {
-            showPermissionGuide();
-        } else if (code === 2) {
-            toast.error("📡 Location unavailable. Enable GPS and try again.", { duration: 6000 });
-        } else if (code === 3) {
-            toast.error("⏱ Location timed out. Check GPS and try again.", { duration: 5000 });
+    const fetchLocationNative = async (): Promise<{ lat: number; lon: number }> => {
+        if (Capacitor.isNativePlatform()) {
+            const perm = await Geolocation.requestPermissions();
+            if (perm.location !== "granted") {
+                throw { code: 1 };
+            }
+            const pos = await Geolocation.getCurrentPosition({
+                enableHighAccuracy: true,
+                timeout: 15000,
+            });
+            return { lat: pos.coords.latitude, lon: pos.coords.longitude };
         } else {
-            toast.error("Unable to get location. Paste a Google Maps link manually.");
+            return new Promise((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(
+                    (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+                    reject,
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                );
+            });
         }
-    } finally {
-        setLocationLoading(false);
-    }
-};
+    };
+
+    const handleUseMyLocation = async () => {
+        setLocationLoading(true);
+        try {
+            const { lat, lon } = await fetchLocationNative();
+            await applyLocation(lat, lon);
+        } catch (err: any) {
+            const code = err?.code;
+            if (code === 1) {
+                showPermissionGuide();
+            } else if (code === 2) {
+                toast.error("📡 Location unavailable. Enable GPS and try again.", { duration: 6000 });
+            } else if (code === 3) {
+                toast.error("⏱ Location timed out. Check GPS and try again.", { duration: 5000 });
+            } else {
+                toast.error("Unable to get location. Paste a Google Maps link manually.");
+            }
+        } finally {
+            setLocationLoading(false);
+        }
+    };
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-2">
             <Toaster position="top-center" reverseOrder={false} />
-            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
+            <div
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+                onClick={mandatory ? undefined : onClose}
+            />
 
             <div className="relative bg-white w-full max-w-4xl flex rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
 
@@ -303,9 +278,11 @@ const handleUseMyLocation = async () => {
 
                 {/* RIGHT: FORM SECTION */}
                 <div className="flex-1 flex flex-col bg-white">
-                    <button onClick={onClose} className="absolute right-4 top-4 p-1.5 text-slate-300 hover:text-red-600 transition-all">
-                        <X size={20} />
-                    </button>
+                    {!mandatory && (
+                        <button onClick={onClose} className="absolute right-4 top-4 p-1.5 text-slate-300 hover:text-red-600 transition-all">
+                            <X size={20} />
+                        </button>
+                    )}
 
                     <div className="p-6 md:p-8 flex flex-col h-full max-h-[90vh] overflow-y-auto">
                         <div className="mb-4">
@@ -313,6 +290,11 @@ const handleUseMyLocation = async () => {
                             <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter">
                                 {isLogin ? "Partner Login" : "Registration"}
                             </h2>
+                            {mandatory && (
+                                <p className="text-[10px] font-bold text-slate-400 mt-1">
+                                    Please login or register to continue.
+                                </p>
+                            )}
                         </div>
 
                         {isSubmitted ? (
@@ -325,19 +307,21 @@ const handleUseMyLocation = async () => {
                                     <span className="text-[9px] text-slate-400 font-black">APPLICATION ID</span>
                                     <p className="text-lg font-black text-slate-900 tracking-wider">{generatedId}</p>
                                 </div>
-                                <button onClick={onClose} className="w-full py-3 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px]">
-                                    Close Window
-                                </button>
+                                {!mandatory && (
+                                    <button onClick={onClose} className="w-full py-3 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px]">
+                                        Close Window
+                                    </button>
+                                )}
                             </div>
                         ) : (
                             <div className="space-y-3 flex-1">
                                 {isLogin ? (
-                                    <>
+                                    <div className="space-y-3 animate-in fade-in">
                                         <Input name="phone" icon={<Phone size={16} />} type="tel" placeholder="Registered Mobile Number" onChange={handleChange} value={formData.phone} maxLength={10} />
                                         <button onClick={handleLogin} className="w-full py-4 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-black transition-colors">
-                                            {loading ? <Loader2 className="animate-spin mx-auto" size={16} /> : "Authorize Access"}
+                                            {loading ? <Loader2 className="animate-spin mx-auto" size={16} /> : "Login"}
                                         </button>
-                                    </>
+                                    </div>
                                 ) : (
                                     <>
                                         <div className="flex gap-1 mb-3">
@@ -377,8 +361,6 @@ const handleUseMyLocation = async () => {
 
                                         {step === 3 && (
                                             <div className="space-y-2 animate-in fade-in slide-in-from-right-2">
-
-                                                {/* Location button */}
                                                 <button
                                                     type="button"
                                                     onClick={handleUseMyLocation}
@@ -391,13 +373,9 @@ const handleUseMyLocation = async () => {
                                                     }
                                                 </button>
 
-                                                {/* Tip box */}
                                                 <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
                                                     <p className="text-[8px] font-black text-amber-700 uppercase tracking-widest leading-relaxed">
                                                         📍 Tap above → Allow location when the popup appears
-                                                    </p>
-                                                    <p className="text-[7px] font-bold text-amber-600 mt-1 leading-relaxed">
-                                                        If blocked → Go to your phone Settings → Apps → Find this app → Permissions → Location → Allow
                                                     </p>
                                                 </div>
 

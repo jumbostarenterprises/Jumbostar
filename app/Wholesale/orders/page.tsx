@@ -230,102 +230,109 @@ export default function WholesaleOrders() {
     };
 
     // ─── RESTOCK ON CANCEL ───────────────────────────────────────────────────────
-  const cancelOrder = async (orderId: string) => {
-    const confirmCancel = window.confirm("Are you sure you want to cancel this order?");
-    if (!confirmCancel) return;
-
-    try {
+    const cancelOrder = async (orderId: string) => {
         const order = orders.find((o) => o.id === orderId);
-        if (!order) throw new Error("Order not found");
 
-        // 1. Mark order as cancelled
-        const { error: cancelError } = await supabase
-            .from("orders")
-            .update({ order_status: "cancelled", updated_at: new Date().toISOString() })
-            .eq("id", orderId);
-        if (cancelError) throw cancelError;
+        // ── Guard: only allow cancellation while order is still "processing" (not yet picked up) ──
+        if (order && order.order_status !== "processing") {
+            toast.error("This order has already been dispatched and can no longer be cancelled.");
+            return;
+        }
 
-        // 2. Restock each item
-        const restockErrors: string[] = [];
+        const confirmCancel = window.confirm("Are you sure you want to cancel this order?");
+        if (!confirmCancel) return;
 
-        for (const item of order.items || []) {
-            try {
-                // If variant_id is stored directly — fastest path
-                if (item.variant_id) {
-                    const { data: v } = await supabase
-                        .from("product_variants")
-                        .select("stock")
-                        .eq("id", item.variant_id)
-                        .single();
+        try {
+            if (!order) throw new Error("Order not found");
 
-                    if (v) {
-                        await supabase
+            // 1. Mark order as cancelled
+            const { error: cancelError } = await supabase
+                .from("orders")
+                .update({ order_status: "cancelled", updated_at: new Date().toISOString() })
+                .eq("id", orderId);
+            if (cancelError) throw cancelError;
+
+            // 2. Restock each item
+            const restockErrors: string[] = [];
+
+            for (const item of order.items || []) {
+                try {
+                    // If variant_id is stored directly — fastest path
+                    if (item.variant_id) {
+                        const { data: v } = await supabase
                             .from("product_variants")
-                            .update({ stock: (v.stock || 0) + (item.quantity || 0) })
-                            .eq("id", item.variant_id);
+                            .select("stock")
+                            .eq("id", item.variant_id)
+                            .single();
+
+                        if (v) {
+                            await supabase
+                                .from("product_variants")
+                                .update({ stock: (v.stock || 0) + (item.quantity || 0) })
+                                .eq("id", item.variant_id);
+                            continue;
+                        }
+                    }
+
+                    // Fallback: match by product name + variant_name (e.g. "10", "50")
+                    // Step A: find the product by name
+                    const { data: productRows } = await supabase
+                        .from("products")
+                        .select("id")
+                        .ilike("name", item.product_name?.trim());
+
+                    if (!productRows || productRows.length === 0) {
+                        restockErrors.push(item.product_name);
                         continue;
                     }
-                }
 
-                // Fallback: match by product name + variant_name (e.g. "10", "50")
-                // Step A: find the product by name
-                const { data: productRows } = await supabase
-                    .from("products")
-                    .select("id")
-                    .ilike("name", item.product_name?.trim());
+                    const productId = productRows[0].id;
 
-                if (!productRows || productRows.length === 0) {
+                    // Step B: find the variant by product_id + variant value
+                    const { data: variantRows } = await supabase
+                        .from("product_variants")
+                        .select("id, stock")
+                        .eq("product_id", productId)
+                        .eq("variant", item.variant_name?.toString() || item.variant?.toString() || "");
+
+                    if (!variantRows || variantRows.length === 0) {
+                        restockErrors.push(item.product_name);
+                        continue;
+                    }
+
+                    const variantRow = variantRows[0];
+                    const newStock = (variantRow.stock || 0) + (item.quantity || 0);
+
+                    const { error: updateErr } = await supabase
+                        .from("product_variants")
+                        .update({ stock: newStock })
+                        .eq("id", variantRow.id);
+
+                    if (updateErr) restockErrors.push(item.product_name);
+
+                } catch (itemErr) {
+                    console.error("Restock error for item:", item.product_name, itemErr);
                     restockErrors.push(item.product_name);
-                    continue;
                 }
-
-                const productId = productRows[0].id;
-
-                // Step B: find the variant by product_id + variant value
-                const { data: variantRows } = await supabase
-                    .from("product_variants")
-                    .select("id, stock")
-                    .eq("product_id", productId)
-                    .eq("variant", item.variant_name?.toString() || item.variant?.toString() || "");
-
-                if (!variantRows || variantRows.length === 0) {
-                    restockErrors.push(item.product_name);
-                    continue;
-                }
-
-                const variantRow = variantRows[0];
-                const newStock = (variantRow.stock || 0) + (item.quantity || 0);
-
-                const { error: updateErr } = await supabase
-                    .from("product_variants")
-                    .update({ stock: newStock })
-                    .eq("id", variantRow.id);
-
-                if (updateErr) restockErrors.push(item.product_name);
-
-            } catch (itemErr) {
-                console.error("Restock error for item:", item.product_name, itemErr);
-                restockErrors.push(item.product_name);
             }
+
+            if (restockErrors.length > 0) {
+                toast.success("Order cancelled");
+                toast.error(
+                    `Stock could not be restored for: ${restockErrors.join(", ")}. Please update manually.`,
+                    { duration: 6000 }
+                );
+            } else {
+                toast.success("Order cancelled successfully");
+            }
+
+            fetchOrders();
+
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to cancel order");
         }
-
-        if (restockErrors.length > 0) {
-            toast.success("Order cancelled");
-            toast.error(
-                `Stock could not be restored for: ${restockErrors.join(", ")}. Please update manually.`,
-                { duration: 6000 }
-            );
-        } else {
-            toast.success("Order cancelled successfully");
-        }
-
-        fetchOrders();
-
-    } catch (err) {
-        console.error(err);
-        toast.error("Failed to cancel order");
-    }
-};
+    };
     // ─────────────────────────────────────────────────────────────────────────────
 
     const cancelReturn = async (returnId: string) => {
@@ -493,6 +500,7 @@ export default function WholesaleOrders() {
                         let displayBalance = order.remaining_balance !== null ? Number(order.remaining_balance) : (order.payment_status === 'paid' ? 0 : displayTotal);
                         const isPaid = displayBalance <= 0;
                         const isCancelled = order.order_status === "cancelled";
+                        const canCancel = order.order_status === "processing"; // ← only before pickup/dispatch
 
                         return (
                             <div key={order.id} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
@@ -607,35 +615,45 @@ export default function WholesaleOrders() {
                                                 </p>
                                             </div>
 
-                                            {!isPaid && !isCancelled ? (
+                                            {isCancelled ? (
+                                                <div className="flex items-center justify-center gap-2 py-3 bg-red-500/10 text-red-500 rounded-xl border border-red-500/20">
+                                                    <X size={14} />
+                                                    <span className="text-[9px] font-black uppercase tracking-widest">Order Cancelled</span>
+                                                </div>
+                                            ) : isPaid && order.order_status === "delivered" ? (
+                                                <div className="flex items-center justify-center gap-2 py-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                                                    <CheckCircle2 size={14} />
+                                                    <span className="text-[9px] font-black uppercase tracking-widest">No Dues</span>
+                                                </div>
+                                            ) : (
                                                 <>
-                                                    <button
-                                                        onClick={() => { setSelectedOrder(order); setShowPaymentPopup(true); }}
-                                                        disabled={processingId === order.id}
-                                                        className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-900/20"
-                                                    >
-                                                        {processingId === order.id ? <Loader2 className="animate-spin" size={16} /> : <Wallet size={16} />}
-                                                        Settle Now
-                                                    </button>
-                                                    {order.order_status !== "cancelled" && order.order_status !== "delivered" && (
+                                                    {!isPaid && (
+                                                        <button
+                                                            onClick={() => { setSelectedOrder(order); setShowPaymentPopup(true); }}
+                                                            disabled={processingId === order.id}
+                                                            className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-900/20"
+                                                        >
+                                                            {processingId === order.id ? <Loader2 className="animate-spin" size={16} /> : <Wallet size={16} />}
+                                                            Settle Now
+                                                        </button>
+                                                    )}
+
+                                                    {canCancel ? (
                                                         <button
                                                             onClick={() => cancelOrder(order.id)}
                                                             className="w-full mt-3 bg-white border border-red-200 text-red-600 hover:bg-red-50 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
                                                         >
                                                             Cancel Order
                                                         </button>
+                                                    ) : (
+                                                        <div className="flex items-center justify-center gap-2 py-3 mt-3 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
+                                                            <Package size={14} />
+                                                            <span className="text-[9px] font-black uppercase tracking-widest">
+                                                                {order.order_status === "dispatched" ? "Picked Up — Cannot Cancel" : "In Transit — Cannot Cancel"}
+                                                            </span>
+                                                        </div>
                                                     )}
                                                 </>
-                                            ) : isCancelled ? (
-                                                <div className="flex items-center justify-center gap-2 py-3 bg-red-500/10 text-red-500 rounded-xl border border-red-500/20">
-                                                    <X size={14} />
-                                                    <span className="text-[9px] font-black uppercase tracking-widest">Order Cancelled</span>
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center justify-center gap-2 py-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
-                                                    <CheckCircle2 size={14} />
-                                                    <span className="text-[9px] font-black uppercase tracking-widest">No Dues</span>
-                                                </div>
                                             )}
                                         </div>
                                     </div>

@@ -117,9 +117,9 @@ export default function Footer() {
               <MapPin size={16} className="text-red-600 mt-1" />
               <span>
                 <b>JUMBOSTAR ENTERPRISES</b><br />
-                No.60/2 A Madanayakanahalli<br />
-                Opp. Miami Supermarket<br />
-                Bangalore - 562162
+               Survry no 49 Behind RE Rogers<br />
+                 Tumkur Road Madanayakanahalli<br />
+                Bangalore 562162
               </span>
             </div>
 
@@ -127,8 +127,8 @@ export default function Footer() {
               <div className="flex gap-3">
                 <Phone size={16} className="text-red-600" />
                 <div className="flex flex-col gap-1">
-                  <span>K. Sathyababu – 9148794079</span>
-                  <span>Ramesh – 8073082709</span> {/* Added Ramesh here */}
+                  <span>Ramesh – 8073082709</span> 
+                   <span>Gangadhara N E – 7760711943</span>
                 </div>
               </div>
             </div>
