@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Image from "next/image";
 import Link from "next/link";
@@ -32,10 +33,11 @@ interface ProductVariant {
 interface CartItem {
   id: string;
   quantity: number;
-  product_variants: ProductVariant;
+  product_variants: ProductVariant | null;
 }
 
 export default function CartPage() {
+  const router = useRouter();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -86,7 +88,15 @@ export default function CartPage() {
         .eq("user_id", userId);
 
       if (error) throw error;
-      setCartItems((data as unknown as CartItem[]) || []);
+
+      // Filter out rows whose joined variant is missing/null (deleted product,
+      // broken relation, RLS block, etc.) so a bad row can't crash the page
+      // or silently disable the checkout button.
+      const cleanData = ((data as unknown as CartItem[]) || []).filter(
+        (item) => item.product_variants
+      );
+
+      setCartItems(cleanData);
     } catch (err) {
       toast.error("Failed to load cart");
     } finally {
@@ -112,12 +122,22 @@ export default function CartPage() {
 
   const calculateItemPrice = (item: CartItem): number => {
     const variant = item.product_variants;
+    if (!variant) return 0;
     const qty = item.quantity;
     const tiers = variant.variant_tiers || [];
     const applicableTier = [...tiers]
       .sort((a, b) => b.min_qty - a.min_qty)
       .find(t => qty >= t.min_qty);
     return applicableTier ? parseFloat(applicableTier.price) : variant.wholesale_price;
+  };
+
+  // Discount % vs the base wholesale price, used for the "Bulk Price" badge
+  const calculateDiscountPercent = (item: CartItem): number => {
+    const variant = item.product_variants;
+    if (!variant || !variant.wholesale_price) return 0;
+    const currentPrice = calculateItemPrice(item);
+    if (currentPrice >= variant.wholesale_price) return 0;
+    return Math.round(((variant.wholesale_price - currentPrice) / variant.wholesale_price) * 100);
   };
 
   const updateQuantity = async (id: string, newQty: number, minQty: number, maxStock: number) => {
@@ -148,7 +168,7 @@ export default function CartPage() {
 
   const subtotal = cartItems.reduce((acc, item) => {
     // Only count in-stock items toward subtotal
-    if ((item.product_variants.stock || 0) <= 0) return acc;
+    if ((item.product_variants?.stock || 0) <= 0) return acc;
     const pricePerUnit = calculateItemPrice(item);
     return acc + (pricePerUnit * item.quantity);
   }, 0);
@@ -157,7 +177,23 @@ export default function CartPage() {
   const isBelowMinimum = subtotal < MIN_ORDER_VALUE && cartItems.length > 0;
 
   // Check if any cart item is out of stock
-  const hasOutOfStockItems = cartItems.some(item => (item.product_variants.stock || 0) <= 0);
+  const hasOutOfStockItems = cartItems.some(item => (item.product_variants?.stock || 0) <= 0);
+
+  const isCheckoutDisabled = isBelowMinimum || cartItems.length === 0 || hasOutOfStockItems;
+
+  const handleProceedToCheckout = () => {
+    if (isCheckoutDisabled) {
+      if (hasOutOfStockItems) {
+        toast.error("Remove out-of-stock items to continue");
+      } else if (isBelowMinimum) {
+        toast.error(`Minimum order value is ₹${MIN_ORDER_VALUE.toLocaleString()}`);
+      } else {
+        toast.error("Your cart is empty");
+      }
+      return;
+    }
+    router.push("/Wholesale/checkout");
+  };
 
   if (loading) return (
     <div className="h-screen flex flex-col items-center justify-center bg-white">
@@ -199,9 +235,11 @@ export default function CartPage() {
         <div className="lg:col-span-8 space-y-4">
           {cartItems.length > 0 ? cartItems.map((item) => {
             const variant = item.product_variants;
+            if (!variant) return null;
             const product = variant.products;
             const currentUnitPrice = calculateItemPrice(item);
             const isTiered = currentUnitPrice !== variant.wholesale_price;
+            const discountPercent = calculateDiscountPercent(item);
             const itemStock = variant.stock || 0;
             const isItemOOS = itemStock <= 0;
             // Quantity exceeds current stock (stock dropped after adding to cart)
@@ -241,7 +279,7 @@ export default function CartPage() {
                     <p className="text-[10px] text-slate-400 font-bold uppercase">{variant.variant} {variant.unit}</p>
                     {isTiered && !isItemOOS && (
                       <span className="bg-green-50 text-green-600 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter flex items-center gap-1">
-                        <Tag size={8} /> Bulk Price
+                        <Tag size={8} /> Bulk Price{discountPercent > 0 ? ` -${discountPercent}%` : ""}
                       </span>
                     )}
                     {/* Out of stock tag */}
@@ -360,10 +398,10 @@ export default function CartPage() {
             )}
 
             <button
-              disabled={isBelowMinimum || cartItems.length === 0 || hasOutOfStockItems}
-              onClick={() => window.location.href = "/Wholesale/checkout"}
+              disabled={isCheckoutDisabled}
+              onClick={handleProceedToCheckout}
               className={`w-full py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg transition-all flex items-center justify-center gap-2 
-                ${isBelowMinimum || cartItems.length === 0 || hasOutOfStockItems
+                ${isCheckoutDisabled
                   ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
                   : "bg-red-600 text-white hover:bg-slate-900 shadow-red-100"}`}
             >

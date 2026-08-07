@@ -50,6 +50,7 @@ export default function CheckoutPage() {
     const [successData, setSuccessData] = useState<{
         orderId: string;
         savedAmount: number;
+        savedPercentage: number;
         deliveryLabel: string;
         deliveryDateStr: string;
         isSameDay: boolean;
@@ -88,6 +89,15 @@ export default function CheckoutPage() {
         return applicableTier ? parseFloat(applicableTier.price) : variant.wholesale_price;
     };
 
+    // Per-item bulk-tier discount %, vs the item's base wholesale price
+    const calculateItemDiscountPercent = (item: any): number => {
+        const variant = item.product_variants;
+        if (!variant?.wholesale_price) return 0;
+        const actualPrice = calculateItemPrice(item);
+        if (actualPrice >= variant.wholesale_price) return 0;
+        return Math.round(((variant.wholesale_price - actualPrice) / variant.wholesale_price) * 100);
+    };
+
     // ── Computes total bulk-tier savings across the whole cart ──
     const calculateTotalSavings = (): number => {
         return cartItems.reduce((acc, item) => {
@@ -97,6 +107,15 @@ export default function CheckoutPage() {
             const savingPerUnit = basePrice - actualPrice;
             return acc + (savingPerUnit > 0 ? savingPerUnit * item.quantity : 0);
         }, 0);
+    };
+
+    // ── Overall savings as a percentage of what the cart would have cost
+    //     at full (non-bulk) wholesale price ──
+    const calculateSavingsPercentage = (): number => {
+        const savings = calculateTotalSavings();
+        const originalTotal = subtotal + savings;
+        if (originalTotal <= 0) return 0;
+        return (savings / originalTotal) * 100;
     };
 
     // ── 3 PM cutoff delivery rule ──
@@ -134,11 +153,16 @@ export default function CheckoutPage() {
                 .single();
             setBankDetails(bankData);
 
-            const { data: profile } = await supabase
-                .from("wholesale_users")
-                .select("*")
-                .eq("id", user.id)
-                .single();
+const { data: profile, error: profileError } = await supabase
+    .from("wholesale_users")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle();
+
+if (profileError) console.error("Profile fetch error:", profileError);
+if (!profile) {
+    toast.error("Couldn't load your account details. Please contact support.");
+}
 
             const transport = profile?.transport_charge || 0;
             const handling = profile?.handling_fees || 0;
@@ -184,14 +208,17 @@ export default function CheckoutPage() {
                 `)
                 .eq("user_id", user.id);
 
-            if (!cart || cart.length === 0) {
+            // Guard against rows whose joined variant came back null
+            const cleanCart = (cart || []).filter((item: any) => item.product_variants);
+
+            if (!cleanCart || cleanCart.length === 0) {
                 router.push("/Wholesale/cart");
                 return;
             }
 
-            setCartItems(cart);
+            setCartItems(cleanCart);
 
-            const calcSubtotal = cart.reduce(
+            const calcSubtotal = cleanCart.reduce(
                 (acc: number, item: any) =>
                     acc + item.quantity * calculateItemPrice(item),
                 0
@@ -256,6 +283,7 @@ export default function CheckoutPage() {
                     quantity: item.quantity,
                     price_at_purchase: unitPrice,
                     subtotal: item.quantity * unitPrice,
+                    discount_percent: calculateItemDiscountPercent(item),
                     image:
                         item.product_variants.products.product_images?.[0]?.image_url || null
                 };
@@ -266,6 +294,7 @@ export default function CheckoutPage() {
             // since 'orders' has no expected_delivery_date column yet.
             const { isSameDay, deliveryLabel, deliveryDateStr } = getDeliveryEstimate();
             const savedAmount = calculateTotalSavings();
+            const savedPercentage = calculateSavingsPercentage();
 
             const orderData = {
 
@@ -404,6 +433,7 @@ export default function CheckoutPage() {
             setSuccessData({
                 orderId: customId,
                 savedAmount,
+                savedPercentage,
                 deliveryLabel,
                 deliveryDateStr,
                 isSameDay,
@@ -477,6 +507,9 @@ export default function CheckoutPage() {
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Preparing Secure Checkout...</p>
         </div>
     );
+
+    const totalSavings = calculateTotalSavings();
+    const savingsPercent = calculateSavingsPercentage();
 
     return (
         <div className="min-h-screen bg-slate-50/50 pb-20 font-sans">
@@ -584,7 +617,7 @@ export default function CheckoutPage() {
                         )}
                     </div>
 
-                    {/* ORDER MANIFEST — SHOWS BULK PRICE + BADGE */}
+                    {/* ORDER MANIFEST — SHOWS BULK PRICE + BADGE + DISCOUNT % */}
                     <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
                         <div className="bg-slate-50/50 px-8 py-5 border-b border-slate-100 flex justify-between">
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Item Breakdown</span>
@@ -597,6 +630,7 @@ export default function CheckoutPage() {
                                 const img = product.product_images?.[0]?.image_url;
                                 const unitPrice = calculateItemPrice(item);
                                 const isTiered = unitPrice !== variant.wholesale_price;
+                                const discountPercent = calculateItemDiscountPercent(item);
                                 return (
                                     <div key={i} className="p-6 flex items-center justify-between group">
                                         <div className="flex gap-5 items-center">
@@ -609,7 +643,7 @@ export default function CheckoutPage() {
                                                     <p className="text-[9px] text-slate-400 font-bold tracking-tighter">Qty: {item.quantity}</p>
                                                     {isTiered && (
                                                         <span className="bg-green-50 text-green-600 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter flex items-center gap-1">
-                                                            <Tag size={8} /> Bulk Price
+                                                            <Tag size={8} /> Bulk Price{discountPercent > 0 ? ` -${discountPercent}%` : ""}
                                                         </span>
                                                     )}
                                                 </div>
@@ -639,6 +673,17 @@ export default function CheckoutPage() {
                                     <div className="text-xs font-bold text-slate-400 uppercase">Subtotal</div>
                                     <div className="text-sm font-black">₹{subtotal.toLocaleString()}</div>
                                 </div>
+
+                                {/* Bulk discount row — only shown when there are savings */}
+                                {totalSavings > 0 && (
+                                    <div className="flex justify-between items-end">
+                                        <div className="text-xs font-bold text-emerald-400 uppercase flex items-center gap-1.5">
+                                            <PiggyBank size={12} /> Bulk Savings ({savingsPercent.toFixed(1)}%)
+                                        </div>
+                                        <div className="text-sm font-black text-emerald-400">-₹{totalSavings.toLocaleString()}</div>
+                                    </div>
+                                )}
+
                                 <div className="flex justify-between items-end">
                                     <div className="text-xs font-bold text-slate-400 uppercase">Transport Charge</div>
                                     <div className="text-sm font-black">₹{transportCharge.toLocaleString()}</div>
@@ -720,6 +765,11 @@ export default function CheckoutPage() {
                                         <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
                                             <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">Total Amount</span>
                                             <p className="text-3xl font-black text-slate-900">₹{total.toLocaleString()}</p>
+                                            {totalSavings > 0 && (
+                                                <p className="text-[9px] font-black text-emerald-600 uppercase mt-1">
+                                                    Saved {savingsPercent.toFixed(1)}% (₹{totalSavings.toLocaleString()})
+                                                </p>
+                                            )}
                                         </div>
 
                                         <div className="md:col-span-2 flex bg-slate-50 p-1.5 rounded-3xl border border-slate-100">
@@ -933,8 +983,11 @@ export default function CheckoutPage() {
                                     </div>
                                     <div>
                                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">You Saved</p>
-                                        <p className="text-2xl font-black text-emerald-600 tracking-tighter">
+                                        <p className="text-2xl font-black text-emerald-600 tracking-tighter flex items-baseline gap-2">
                                             ₹{successData.savedAmount.toLocaleString()}
+                                            <span className="text-xs font-black text-emerald-500">
+                                                ({successData.savedPercentage.toFixed(1)}% off)
+                                            </span>
                                         </p>
                                         <p className="text-[9px] font-bold text-slate-400">with bulk pricing on this order</p>
                                     </div>
