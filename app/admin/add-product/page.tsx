@@ -14,7 +14,7 @@ import {
   Package,
   Search,
   Star,
-  X,
+  X
 } from "lucide-react";
 
 interface Product {
