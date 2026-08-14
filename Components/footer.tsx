@@ -73,11 +73,7 @@ export default function Footer() {
               </li>
 
 
-              <li>
-                <Link href="/contact" className="hover:text-red-500 transition">
-                  Contact Us
-                </Link>
-              </li>
+             
 
             </ul>
           </div>
@@ -94,8 +90,8 @@ export default function Footer() {
 
               <li>
                 <a
-                  href="/termspolicy.pdf"
-                  target="_blank"
+                  href="/Wholesale/termspolicy"
+               
                   className="hover:text-red-500 transition"
                 >
                   Terms & Policy
@@ -148,7 +144,7 @@ export default function Footer() {
         <div className="border-t border-white/5 pt-5 flex flex-col md:flex-row justify-between items-center text-xs text-slate-500 gap-3">
 
           <div>
-            © 2024 Jumbostar Wholesale. All rights reserved.
+            ©️ 2024 Jumbostar Wholesale. All rights reserved.
           </div>
 
           <a
