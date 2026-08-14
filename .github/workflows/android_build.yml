@@ -1,28 +1,70 @@
-name: Build Android APK
+name: Build Jumbostar AAB
+
 on:
   push:
-    branches: [main] # This triggers the build every time you push to 'main'
+    branches:
+      - main
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
-      - run: mkdir -p out && touch out/index.html # Creates a dummy build folder for Capacitor
-      - uses: actions/setup-java@v4
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Create Production .env File
+        run: |
+          echo "NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" >> .env
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" >> .env
+          echo "NEXT_PUBLIC_RAZORPAY_KEY_ID=${{ secrets.NEXT_PUBLIC_RAZORPAY_KEY_ID }}" >> .env
+          echo "RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}" >> .env
+          echo "EMAIL_USER=${{ secrets.EMAIL_USER }}" >> .env
+          echo "EMAIL_PASS=${{ secrets.EMAIL_PASS }}" >> .env
+
+      - name: Build Web Application (Static Export)
+        run: npm run build
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '21'
-      - uses: android-actions/setup-android@v3
-      - run: npx cap sync android # Syncs your Jumbostar config to the Android project
-      - run: |
+          distribution: zulu
+          java-version: "21"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Capacitor Sync
+        run: npx cap sync android
+
+      - name: Decode Production Keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > jumbostar-release.jks
+
+      - name: Create keystore.properties
+        run: |
+          echo "storeFile=../jumbostar-release.jks" >> keystore.properties
+          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> keystore.properties
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> keystore.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> keystore.properties
+
+      - name: Build Release AAB
+        run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
-      - uses: actions/upload-artifact@v4
+          ./gradlew bundleRelease
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
         with:
-          name: jumbostar-wholesale-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: jumbostar-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
