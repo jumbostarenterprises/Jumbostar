@@ -4,6 +4,7 @@ const nextConfig = {
     turbo: false,   // 👈 ADD THIS
   },
   images: {
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: 'https',
