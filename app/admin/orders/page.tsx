@@ -20,6 +20,8 @@ export default function AdminOrdersPage() {
     const [updating, setUpdating] = useState(false);
     const [returns, setReturns] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState("orders");
+    const [showAllWholesalers, setShowAllWholesalers] = useState(false);
+
     useEffect(() => { fetchOrders(); }, []);
 
     useEffect(() => {
@@ -120,6 +122,7 @@ export default function AdminOrdersPage() {
             setLoading(false);
         }
     };
+
     const updateStatus = async (orderId: string, updates: any) => {
         if (updates.order_status === "delivered") {
             const orderToUpdate = orders.find(o => o.id === orderId);
@@ -226,10 +229,24 @@ export default function AdminOrdersPage() {
         return 'bg-slate-50 text-slate-700 border-slate-200';
     };
 
-    const filteredClients = groupedClients.filter(c =>
-        c.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.business_id.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredClients = groupedClients.filter(client => {
+        const matchesSearch = client.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                              client.business_id.toLowerCase().includes(searchTerm.toLowerCase());
+        
+        if (!matchesSearch) return false;
+
+        // Active orders include processing, pending, and shipped (anything not delivered/cancelled)
+        const activeCount = client.all_orders.filter((o: any) => 
+            o.order_status !== "delivered" && o.order_status !== "cancelled"
+        ).length;
+        
+        // If not showing all, only show clients with at least 1 active order
+        if (!showAllWholesalers && activeCount === 0) {
+            return false;
+        }
+
+        return true;
+    });
 
     return (
         <div className=" bg-[#FDF8F8] p-6 md:p-12">
@@ -242,63 +259,164 @@ export default function AdminOrdersPage() {
                     <p className="text-red-500 font-bold tracking-widest uppercase text-xs mt-1">Management Console </p>
                 </div>
 
-                <div className="relative w-full md:w-96">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input
-                        type="text"
-                        placeholder="SEARCH BUSINESS ENTITY..."
-                        className="w-full pl-12 pr-4 py-4 text-black bg-white border-0 shadow-xl shadow-red-500/5 rounded-2xl focus:ring-2 ring-red-500 transition-all outline-none text-xs font-black uppercase"
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
+                <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
+                    <div className="flex items-center gap-2 w-full md:w-auto">
+                        <button
+                            onClick={() => setShowAllWholesalers(true)}
+                            className="w-full md:w-auto px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all bg-red-600 text-white shadow-xl hover:bg-red-700"
+                        >
+                            View All Wholesalers
+                        </button>
+                        
+                        {/* Clear View All Button */}
+                        {showAllWholesalers && (
+                            <button
+                                onClick={() => setShowAllWholesalers(false)}
+                                className="p-4 bg-white text-slate-400 rounded-2xl shadow-sm border border-slate-200 hover:bg-slate-50 hover:text-red-600 transition-all flex items-center justify-center"
+                                title="Close View All"
+                            >
+                                <X size={18} />
+                            </button>
+                        )}
+                    </div>
+                    
+                    <div className="relative w-full md:w-96">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                        <input
+                            type="text"
+                            placeholder="SEARCH BUSINESS ENTITY..."
+                            className="w-full pl-12 pr-4 py-4 text-black bg-white border-0 shadow-xl shadow-red-500/5 rounded-2xl focus:ring-2 ring-red-500 transition-all outline-none text-xs font-black uppercase"
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
                 </div>
             </div>
 
             {/* Business Table */}
-            <div className="max-w-7xl mx-auto bg-white rounded-[2.5rem] shadow-2xl shadow-red-900/5 border border-red-50 overflow-hidden">
+            <div className="max-w-[95%] mx-auto bg-white rounded-[2.5rem] shadow-2xl shadow-red-900/5 border border-red-50 overflow-hidden overflow-x-auto">
                 {loading ? (
                     <div className="p-20 text-center font-black text-slate-400 uppercase tracking-widest animate-pulse">Loading Registry...</div>
                 ) : (
-                    <table className="w-full text-left">
+                    <table className="w-full text-left min-w-max">
                         <thead className="bg-red-50/50 border-b border-red-100">
                             <tr>
-                                <th className="px-8 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Business Entity</th>
-                                <th className="px-8 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Orders</th>
-                                <th className="px-8 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Revenue</th>
-                                <th className="px-8 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Returns</th>
-                                <th className="px-8 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Balance Due</th>
-                                <th className="px-8 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest text-right">Actions</th>
+                                <th className="px-6 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Business Entity</th>
+                                <th className="px-4 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Orders</th>
+                                
+                                {/* Only show Product details if NOT in "View All" mode */}
+                                {!showAllWholesalers && (
+                                    <>
+                                        <th className="px-4 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Product</th>
+                                        <th className="px-4 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Qty</th>
+                                        <th className="px-4 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Pricing</th>
+                                    </>
+                                )}
+                                
+                                <th className="px-4 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Returns</th>
+                                <th className="px-6 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-red-50">
-                            {filteredClients.map(client => (
-                                <tr key={client.business_id} className="hover:bg-red-50/30 transition-all cursor-pointer group" onClick={() => setSelectedClient(client)}>
-                                    <td className="px-8 py-6">
-                                        <div className="text-lg font-black text-slate-900 tracking-tighter uppercase">{client.company_name}</div>
-                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{client.business_id}</div>
-                                    </td>
-                                    <td className="px-8 py-6">
-                                        <span className="px-3 py-1 bg-slate-100 rounded-full text-[10px] font-black text-slate-600">{client.all_orders.length} ITEMS</span>
-                                    </td>
-                                    <td className="px-8 py-6 font-black text-slate-900">
-                                        ₹{client.total_spent?.toLocaleString()}
-                                    </td>
+                            {filteredClients.map(client => {
+                                const activeCount = client.all_orders.filter((o: any) => o.order_status !== "delivered" && o.order_status !== "cancelled").length;
+                                const displayOrdersCount = showAllWholesalers ? client.all_orders.length : activeCount;
+                                
+                                const displayOrdersList = showAllWholesalers 
+                                    ? client.all_orders 
+                                    : client.all_orders.filter((o: any) => o.order_status !== "delivered" && o.order_status !== "cancelled");
+                                
+                                const allItems = displayOrdersList.flatMap((o: any) => o.items || []);
 
-                                    <td className="px-8 py-6">
-                                        <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-[10px] font-black">
-                                            {client.return_count || 0} ITEMS
-                                        </span>
-                                    </td>
+                                return (
+                                    <tr key={client.business_id} className="hover:bg-red-50/30 transition-all cursor-pointer group" onClick={() => setSelectedClient(client)}>
+                                        <td className="px-6 py-6 align-top">
+                                            <div className="text-lg font-black text-slate-900 tracking-tighter uppercase">{client.company_name}</div>
+                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{client.business_id}</div>
+                                        </td>
+                                        
+                                        <td className="px-4 py-6 align-top">
+                                            <span className={`px-3 py-1 rounded-full text-[10px] font-black inline-block mt-1 ${showAllWholesalers ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-600'}`}>
+                                                {displayOrdersCount} {showAllWholesalers ? "TOTAL" : "ACTIVE"}
+                                            </span>
+                                        </td>
 
-                                    <td className="px-8 py-6 font-black text-red-600">
-                                        ₹{client.all_orders.reduce((acc: number, o: any) => acc + (Number(o.remaining_balance) || 0), 0).toLocaleString()}
-                                    </td>
-                                    <td className="px-8 py-6 text-right">
-                                        <button className="p-3 bg-slate-900 text-white rounded-xl hover:bg-red-600 transition-all group-hover:scale-110">
-                                            <ChevronRight size={18} />
-                                        </button>
+                                        {/* Dynamic Columns specifically for Active View */}
+                                        {!showAllWholesalers && (
+                                            <>
+                                                {/* Product Column - Image Top, Name Bottom */}
+                                                <td className="px-4 py-6 align-top">
+                                                    <div className="space-y-4">
+                                                        {allItems.length > 0 ? allItems.map((item: any, idx: number) => (
+                                                            <div key={`p-${idx}`} className="flex flex-col min-h-[7rem]" title={item.product_name}>
+                                                                {item.image_url || item.image ? (
+                                                                    <img 
+                                                                        src={item.image_url || item.image} 
+                                                                        alt={item.product_name} 
+                                                                        className="w-16 h-16 rounded-xl object-cover border border-slate-200 shadow-sm"
+                                                                    />
+                                                                ) : (
+                                                                    <div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center">
+                                                                        <Package size={24} className="text-slate-400" />
+                                                                    </div>
+                                                                )}
+                                                                <span className="text-sm font-black text-slate-800 mt-2 break-words w-40 leading-tight">
+    {item.product_name}
+</span>
+                                                            </div>
+                                                        )) : <div className="h-28 flex items-center"><span className="text-xs text-slate-400">-</span></div>}
+                                                    </div>
+                                                </td>
+
+                                                {/* Qty Column */}
+                                                <td className="px-4 py-6 align-top">
+                                                    <div className="space-y-4">
+                                                        {allItems.length > 0 ? allItems.map((item: any, idx: number) => (
+                                                            <div key={`q-${idx}`} className="text-sm font-bold text-slate-600 h-28 flex items-center">
+                                                                {item.quantity} {item.unit || ''}
+                                                            </div>
+                                                        )) : <div className="h-28 flex items-center"><span className="text-xs text-slate-400">-</span></div>}
+                                                    </div>
+                                                </td>
+
+                                                {/* Pricing Column - Price Top, Subtotal Bottom */}
+                                                <td className="px-4 py-6 align-top">
+                                                    <div className="space-y-4">
+                                                        {allItems.length > 0 ? allItems.map((item: any, idx: number) => (
+                                                            <div key={`pr-${idx}`} className="h-28 flex flex-col justify-center">
+                                                                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                                                                    Price: ₹{Number(item.price_at_purchase).toLocaleString()}
+                                                                </span>
+                                                                <span className="text-sm font-black text-slate-900 mt-1">
+                                                                    Sub: ₹{(Number(item.quantity) * Number(item.price_at_purchase)).toLocaleString()}
+                                                                </span>
+                                                            </div>
+                                                        )) : <div className="h-28 flex items-center"><span className="text-xs text-slate-400">-</span></div>}
+                                                    </div>
+                                                </td>
+                                            </>
+                                        )}
+
+                                        <td className="px-4 py-6 align-top">
+                                            <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-[10px] font-black inline-block mt-1">
+                                                {client.return_count || 0} ITEMS
+                                            </span>
+                                        </td>
+
+                                        <td className="px-6 py-6 text-right align-top">
+                                            <button className="p-3 bg-slate-900 text-white rounded-xl hover:bg-red-600 transition-all group-hover:scale-110 mt-1">
+                                                <ChevronRight size={18} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                            {filteredClients.length === 0 && (
+                                <tr>
+                                    <td colSpan={showAllWholesalers ? 4 : 7} className="p-12 text-center font-bold text-slate-400 uppercase text-xs">
+                                        No Records Found
                                     </td>
                                 </tr>
-                            ))}
+                            )}
                         </tbody>
                     </table>
                 )}
@@ -319,9 +437,20 @@ export default function AdminOrdersPage() {
                             <div className="flex flex-col md:flex-row justify-between items-end mb-12 border-b-4 border-red-600 pb-8 gap-6">
                                 <div>
                                     <h2 className="text-6xl font-black text-slate-900 tracking-tighter uppercase leading-none">{selectedClient.company_name}</h2>
-                                    <div className="flex gap-4 mt-4">
+                                    
+                                    {/* Revenue & Balance Next to Phone Number */}
+                                    <div className="flex flex-wrap gap-4 mt-4 items-center">
                                         <span className="flex items-center gap-1 text-xs font-black text-red-500 uppercase"><Building2 size={14} /> {selectedClient.business_id}</span>
                                         <span className="flex items-center gap-1 text-xs font-black text-slate-500 uppercase"><Phone size={14} /> {selectedClient.client_info?.phone}</span>
+                                        
+                                        <div className="hidden sm:block w-px h-4 bg-slate-300"></div>
+                                        
+                                        <span className="flex items-center gap-1 text-xs font-black text-emerald-600 uppercase tracking-widest">
+                                            <IndianRupee size={12} /> Revenue: ₹{selectedClient.total_spent?.toLocaleString()}
+                                        </span>
+                                        <span className="flex items-center gap-1 text-xs font-black text-red-600 uppercase tracking-widest">
+                                            <IndianRupee size={12} /> Balance: ₹{selectedClient.all_orders.reduce((acc: number, o: any) => acc + (Number(o.remaining_balance) || 0), 0).toLocaleString()}
+                                        </span>
                                     </div>
                                 </div>
                                 <button onClick={generateCombinedPDF} className="flex items-center gap-2 px-8 py-4 bg-red-600 text-white rounded-2xl text-xs font-black uppercase shadow-lg shadow-red-600/20 hover:bg-slate-900 transition-all">
@@ -329,11 +458,10 @@ export default function AdminOrdersPage() {
                                 </button>
                             </div>
 
-                            <div className="flex gap-4 mb-10 border-b pb-4">
-
+                            <div className="flex gap-4 mb-10 border-b pb-4 overflow-x-auto">
                                 <button
                                     onClick={() => setActiveTab("orders")}
-                                    className={`px-6 py-2 rounded-xl text-xs font-black uppercase ${activeTab === "orders"
+                                    className={`px-6 py-2 rounded-xl text-xs font-black uppercase whitespace-nowrap ${activeTab === "orders"
                                         ? "bg-red-600 text-white"
                                         : "bg-white text-slate-700"
                                         }`}
@@ -343,7 +471,7 @@ export default function AdminOrdersPage() {
 
                                 <button
                                     onClick={() => setActiveTab("past")}
-                                    className={`px-6 py-2 rounded-xl text-xs font-black uppercase ${activeTab === "past"
+                                    className={`px-6 py-2 rounded-xl text-xs font-black uppercase whitespace-nowrap ${activeTab === "past"
                                         ? "bg-red-600 text-white"
                                         : "bg-white text-slate-700"
                                         }`}
@@ -353,21 +481,20 @@ export default function AdminOrdersPage() {
 
                                 <button
                                     onClick={() => setActiveTab("returns")}
-                                    className={`px-6 py-2 rounded-xl text-xs font-black uppercase ${activeTab === "returns"
+                                    className={`px-6 py-2 rounded-xl text-xs font-black uppercase whitespace-nowrap ${activeTab === "returns"
                                         ? "bg-red-600 text-white"
                                         : "bg-white text-slate-700"
                                         }`}
                                 >
                                     Returns
                                 </button>
-
                             </div>
 
                             {activeTab === "orders" && (
                                 <>
                                     <div className="mb-16">
                                         <h3 className="text-xs font-black text-slate-400 uppercase mb-6 flex items-center gap-2 tracking-[0.2em]">
-                                            <RefreshCcw size={16} className="text-amber-500" /> Pending Shipments
+                                            <RefreshCcw size={16} className="text-amber-500" /> Active Orders
                                         </h3>
 
                                         <div className="space-y-6">
@@ -382,9 +509,14 @@ export default function AdminOrdersPage() {
                                                         updating={updating}
                                                     />
                                                 ))}
+
+                                            {selectedClient.all_orders.filter((o: any) => o.order_status !== "delivered" && o.order_status !== "cancelled").length === 0 && (
+                                                <div className="text-center text-slate-400 font-bold uppercase text-xs">
+                                                    No Active Orders
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
-
                                 </>
                             )}
 
@@ -412,10 +544,8 @@ export default function AdminOrdersPage() {
                                             No Past Orders
                                         </div>
                                     )}
-
                                 </div>
                             )}
-
 
                             {activeTab === "returns" && (
                                 <div className="space-y-4">
@@ -457,13 +587,9 @@ export default function AdminOrdersPage() {
                                                     </p>
 
                                                 </div>
-
                                             </div>
-
                                         </div>
-
                                     ))}
-
                                 </div>
                             )}
                         </div>
@@ -550,7 +676,7 @@ function OrderCard({ order, updateStatus, getStatusStyle, updating }: any) {
         Itemized List
     </p>
 
-    {/* Table Header - Adjusted spans for better spacing */}
+    {/* Table Header */}
     <div className="grid grid-cols-12 gap-2 bg-slate-900 text-white px-4 py-3 rounded-xl text-[10px] font-bold uppercase tracking-wider">
         <div className="col-span-5">Product</div>
         <div className="col-span-2 text-center">Qty</div>

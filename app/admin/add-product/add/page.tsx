@@ -34,8 +34,11 @@ export default function AddProductPage() {
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
   const [description, setDescription] = useState("");
-  const [images, setImages] = useState<File[]>([]);
-  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  
+  // --- FIXED IMAGE STATES ---
+  const [existingImages, setExistingImages] = useState<any[]>([]); // Images from database
+  const [newImages, setNewImages] = useState<{ file: File; preview: string }[]>([]); // Newly uploaded images
+  const [imagesToDelete, setImagesToDelete] = useState<string[]>([]); // Track deleted DB image IDs
 
   const initialVariant: Variant = {
     variant: "", mrp: "", stock: "", unit: "kg",
@@ -84,8 +87,11 @@ export default function AddProductPage() {
     try {
       const { data: product } = await supabase.from("products").select("*").eq("id", id).single();
       if (product) {
-        setName(product.name); setBrand(product.brand); setDescription(product.description);
-        setSelectedCategory(product.category_id); setSelectedSub(product.subcategory_id);
+        setName(product.name || ""); 
+        setBrand(product.brand || ""); 
+        setDescription(product.description || "");
+        setSelectedCategory(product.category_id || ""); 
+        setSelectedSub(product.subcategory_id || "");
         setSelectedInner(product.inner_category_id || "");
       }
       const { data: varData } = await supabase.from("product_variants").select("*").eq("product_id", id);
@@ -97,7 +103,7 @@ export default function AddProductPage() {
         setVariants(variantsWithTiers);
       }
       const { data: imgData } = await supabase.from("product_images").select("*").eq("product_id", id);
-      if (imgData) setPreviewUrls(imgData.map(img => img.image_url));
+      if (imgData) setExistingImages(imgData); // Set existing images here
     } finally { setIsFetching(false); }
   };
 
@@ -128,8 +134,11 @@ export default function AddProductPage() {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files);
-      setImages(prev => [...prev, ...files]);
-      setPreviewUrls(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+      const newUploads = files.map(file => ({
+        file,
+        preview: URL.createObjectURL(file)
+      }));
+      setNewImages(prev => [...prev, ...newUploads]);
     }
   };
 
@@ -138,7 +147,7 @@ const handleSubmit = async () => {
   
   setLoading(true);
   try {
-    let currentProductId = editingId; // Use a local variable to be safe
+    let currentProductId = editingId;
     const payload = { 
       name, brand, description, 
       category_id: selectedCategory, 
@@ -157,7 +166,6 @@ const handleSubmit = async () => {
     }
 
     // 2. HANDLE VARIANTS
-    // If editing, clear old variants first to avoid duplicates
     if (editingId) {
       await supabase.from("product_variants").delete().eq("product_id", currentProductId);
     }
@@ -188,22 +196,28 @@ const handleSubmit = async () => {
       }
     }
 
-    // 3. IMAGE UPLOAD LOGIC (Crucial Fixes Here)
-    if (images.length > 0) {
-      // Use Promise.all if you want them to upload in parallel (faster)
-      await Promise.all(images.map(async (file) => {
+    // 3. IMAGE UPLOAD & DELETION LOGIC
+    // Delete removed images from database
+    if (imagesToDelete.length > 0) {
+      const { error: deleteError } = await supabase.from("product_images").delete().in("id", imagesToDelete);
+      if (deleteError) console.error("DB Image Delete Error:", deleteError.message);
+    }
+
+    // Upload new images
+    if (newImages.length > 0) {
+      await Promise.all(newImages.map(async ({ file }) => {
         const fileExt = file.name.split('.').pop();
         const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
         const path = `products/${fileName}`;
 
         // Upload to Storage
         const { error: uploadError } = await supabase.storage
-          .from("product-images") // Ensure this bucket exists in Supabase
+          .from("product-images")
           .upload(path, file);
         
         if (uploadError) {
           console.error("Upload error:", uploadError.message);
-          return; // Skip this specific image if upload fails
+          return;
         }
 
         // Get Public URL
@@ -222,7 +236,7 @@ const handleSubmit = async () => {
     }
 
     toast.success(editingId ? "Product updated successfully!" : "Product added successfully!");
-    router.push("/admin/add-product"); // Or wherever your list view is
+    router.push("/admin/add-product"); 
     
   } catch (err: any) { 
     console.error("Submit Error:", err);
@@ -231,6 +245,7 @@ const handleSubmit = async () => {
     setLoading(false); 
   }
 };
+
   return (
     <div className="min-h-screen bg-[#F4F7FE] p-4 md:p-8 font-sans text-slate-900">
       <Toaster position="top-right" />
@@ -339,7 +354,7 @@ const handleSubmit = async () => {
                     </div>
                   </div>
 
-                  {/* TIERED DISCOUNTS - COMPACT DESIGN */}
+                  {/* TIERED DISCOUNTS */}
                   <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 space-y-4">
                     <div className="flex justify-between items-center">
                       <h4 className="text-[10px] font-black text-slate-400 flex items-center gap-2"><ListOrdered size={14} /> BULK PRICING TIERS</h4>
@@ -383,26 +398,19 @@ const handleSubmit = async () => {
             </header>
             <div className="space-y-4">
               <div className="relative">
-                <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold text-sm appearance-none outline-none focus:ring-2 focus:ring-blue-500/20">
+                <select value={selectedCategory || ""} onChange={e => setSelectedCategory(e.target.value)} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold text-sm appearance-none outline-none focus:ring-2 focus:ring-blue-500/20">
                   <option value="">Select Main Category</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
                 <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
               </div>
               <div className="relative">
-                <select value={selectedSub} disabled={!selectedCategory} onChange={e => setSelectedSub(e.target.value)} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold text-sm appearance-none outline-none disabled:opacity-50">
+                <select value={selectedSub || ""} disabled={!selectedCategory} onChange={e => setSelectedSub(e.target.value)} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold text-sm appearance-none outline-none disabled:opacity-50">
                   <option value="">Sub-Category</option>
                   {subcategories.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
                 </select>
                 <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
               </div>
-              {/* <div className="relative">
-                <select value={selectedInner} disabled={!selectedSub} onChange={e => setSelectedInner(e.target.value)} className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-bold text-sm appearance-none outline-none text-blue-700 disabled:opacity-50">
-                  <option value="">Inner Category</option>
-                  {innerCategories.map(ic => <option key={ic.id} value={ic.id}>{ic.title}</option>)}
-                </select>
-                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-300 pointer-events-none" size={16} />
-              </div> */}
             </div>
           </section>
 
@@ -412,17 +420,32 @@ const handleSubmit = async () => {
               <ImageIcon size={14} /> Media Assets
             </header>
             <div className="grid grid-cols-2 gap-3">
-              {previewUrls.map((url, idx) => (
-                <div key={idx} className="relative aspect-square rounded-xl overflow-hidden group border border-slate-100">
-                  <img src={url} className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+              
+              {/* Existing Images from DB */}
+              {existingImages.map((img) => (
+                <div key={img.id} className="relative aspect-square rounded-xl overflow-hidden group border border-slate-100">
+                  <img src={img.image_url} className="w-full h-full object-cover transition-transform group-hover:scale-110" />
                   <button onClick={() => {
-                    setImages(images.filter((_, i) => i !== idx));
-                    setPreviewUrls(previewUrls.filter((_, i) => i !== idx));
+                    setImagesToDelete(prev => [...prev, img.id]);
+                    setExistingImages(prev => prev.filter(e => e.id !== img.id));
                   }} className="absolute top-2 right-2 p-1.5 bg-white/90 backdrop-blur rounded-lg shadow-sm text-red-500 hover:bg-red-500 hover:text-white transition-all">
                     <X size={12} />
                   </button>
                 </div>
               ))}
+
+              {/* Newly Uploaded Images */}
+              {newImages.map((img, idx) => (
+                <div key={`new-${idx}`} className="relative aspect-square rounded-xl overflow-hidden group border border-slate-100">
+                  <img src={img.preview} className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                  <button onClick={() => {
+                    setNewImages(prev => prev.filter((_, i) => i !== idx));
+                  }} className="absolute top-2 right-2 p-1.5 bg-white/90 backdrop-blur rounded-lg shadow-sm text-red-500 hover:bg-red-500 hover:text-white transition-all">
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+
               <label className="aspect-square border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-all text-slate-400 hover:text-red-600">
                 <Upload size={24} />
                 <span className="text-[10px] font-black uppercase">Upload</span>

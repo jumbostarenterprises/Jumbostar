@@ -4,11 +4,12 @@ import { supabase } from "@/lib/supabaseClient";
 import {
     CheckCircle2, XCircle, Eye, Loader2,
     MapPin, Building2, Phone, Mail, Globe, Hash, User, Calendar,
-    Users, Filter, ChevronRight, AlertCircle
+    Users, Filter, ChevronRight, AlertCircle, Trash2
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 import { Truck } from "lucide-react";
 import { Pencil } from "lucide-react";
+
 type Status = 'all' | 'pending' | 'approved' | 'rejected';
 
 export default function WholesaleManagement() {
@@ -21,6 +22,11 @@ export default function WholesaleManagement() {
     const [editTransport, setEditTransport] = useState(false);
     const [handlingFees, setHandlingFees] = useState<number>(0);
     const [editCharges, setEditCharges] = useState(false);
+    
+    // Deletion Modal States
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [userToDelete, setUserToDelete] = useState<any>(null);
+
     useEffect(() => { fetchUsers(); }, []);
 
     const fetchUsers = async () => {
@@ -35,16 +41,15 @@ export default function WholesaleManagement() {
     };
 
     const handleStatusUpdate = async (userId: string, newStatus: string) => {
-
         let updateData: any = {
             status: newStatus,
             updated_at: new Date()
         };
 
-       if (newStatus === "approved") {
-    updateData.transport_charge = transportCharge;
-    updateData.handling_fees = handlingFees;
-}
+        if (newStatus === "approved") {
+            updateData.transport_charge = transportCharge;
+            updateData.handling_fees = handlingFees;
+        }
 
         const { error } = await supabase
             .from("wholesale_users")
@@ -83,6 +88,29 @@ export default function WholesaleManagement() {
 
             fetchUsers();
             setEditTransport(false);
+        }
+    };
+
+    const confirmDelete = async () => {
+        if (!userToDelete) return;
+        
+        // Added .select() to force Supabase to return the deleted row
+        const { data, error } = await supabase
+            .from("wholesale_users")
+            .delete()
+            .eq("id", userToDelete.id)
+            .select(); 
+
+        if (error) {
+            toast.error(error.message || "Failed to delete user");
+        } else if (!data || data.length === 0) {
+            // If data is empty, it means RLS blocked the deletion silently
+            toast.error("Permission denied: Check Supabase RLS policies");
+        } else {
+            toast.success("User deleted successfully");
+            fetchUsers();
+            setDeleteModalOpen(false);
+            setUserToDelete(null);
         }
     };
 
@@ -224,6 +252,18 @@ export default function WholesaleManagement() {
                                                 <Eye size={18} />
                                             </button>
 
+                                            {/* Delete */}
+                                            <button
+                                                onClick={() => {
+                                                    setUserToDelete(user);
+                                                    setDeleteModalOpen(true);
+                                                }}
+                                                className="p-3 bg-white border border-red-100 rounded-2xl text-red-600 hover:bg-red-600 hover:text-white transition-all shadow-sm"
+                                                title="Delete Record"
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+
                                             {user.status === "pending" && (
                                                 <>
                                                     {/* Approve */}
@@ -258,7 +298,7 @@ export default function WholesaleManagement() {
 
             {/* Slide-over Detail View */}
             {selectedUser && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex justify-end transition-all">
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-40 flex justify-end transition-all">
                     <div className="w-full max-w-xl bg-white h-full shadow-2xl p-0 flex flex-col animate-in slide-in-from-right duration-300">
                         <div className="p-8 border-b border-red-50 bg-red-50/30 flex justify-between items-center">
                             <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Application Details</h2>
@@ -462,38 +502,38 @@ export default function WholesaleManagement() {
                             <div className="p-8 bg-white border-t border-red-50 space-y-4">
 
                             {showApproveInput && (
-    <div className="space-y-4">
-        
-        {/* Transport Charge */}
-        <div>
-            <label className="text-xs font-black text-red-500 uppercase tracking-widest">
-                Transport Charge (₹)
-            </label>
-            <input
-                type="number"
-                value={transportCharge}
-                onChange={(e) => setTransportCharge(Number(e.target.value))}
-                className="w-full mt-2 p-4 border border-red-100 rounded-2xl font-bold focus:outline-none focus:ring-2 focus:ring-red-200"
-                placeholder="Enter transport charge"
-            />
-        </div>
+                                <div className="space-y-4">
+                                    
+                                    {/* Transport Charge */}
+                                    <div>
+                                        <label className="text-xs font-black text-red-500 uppercase tracking-widest">
+                                            Transport Charge (₹)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={transportCharge}
+                                            onChange={(e) => setTransportCharge(Number(e.target.value))}
+                                            className="w-full mt-2 p-4 border border-red-100 rounded-2xl font-bold focus:outline-none focus:ring-2 focus:ring-red-200"
+                                            placeholder="Enter transport charge"
+                                        />
+                                    </div>
 
-        {/* Handling Fees */}
-        <div>
-            <label className="text-xs font-black text-red-500 uppercase tracking-widest">
-                Handling Fees (₹)
-            </label>
-            <input
-                type="number"
-                value={handlingFees}
-                onChange={(e) => setHandlingFees(Number(e.target.value))}
-                className="w-full mt-2 p-4 border border-red-100 rounded-2xl font-bold focus:outline-none focus:ring-2 focus:ring-red-200"
-                placeholder="Enter handling fees"
-            />
-        </div>
+                                    {/* Handling Fees */}
+                                    <div>
+                                        <label className="text-xs font-black text-red-500 uppercase tracking-widest">
+                                            Handling Fees (₹)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={handlingFees}
+                                            onChange={(e) => setHandlingFees(Number(e.target.value))}
+                                            className="w-full mt-2 p-4 border border-red-100 rounded-2xl font-bold focus:outline-none focus:ring-2 focus:ring-red-200"
+                                            placeholder="Enter handling fees"
+                                        />
+                                    </div>
 
-    </div>
-)}
+                                </div>
+                            )}
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <button
@@ -546,6 +586,61 @@ export default function WholesaleManagement() {
                 </div>
             )}
 
+            {/* Delete Confirmation Modal */}
+            {deleteModalOpen && userToDelete && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all">
+                    <div className="bg-white rounded-[2.5rem] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200 border border-red-100">
+                        <div className="flex flex-col items-center text-center space-y-4">
+                            <div className="w-20 h-20 bg-red-50 text-red-600 rounded-[2rem] flex items-center justify-center mb-2 shadow-inner border border-red-100">
+                                <Trash2 size={40} />
+                            </div>
+                            <h3 className="text-2xl font-black text-slate-900 tracking-tight">Delete Partner?</h3>
+                            <p className="text-slate-500 font-medium text-sm px-4">
+                                This action is permanent and cannot be undone. Are you absolutely sure?
+                            </p>
+
+                            <div className="w-full p-5 bg-slate-50 rounded-[2rem] border border-slate-100 mt-4 flex flex-col gap-3">
+                                <div>
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Company</span>
+                                    <span className="text-base font-black text-slate-900 uppercase">{userToDelete.company_name}</span>
+                                </div>
+                                <div className="w-full h-px bg-slate-200 rounded-full"></div>
+                                <div>
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Current Status</span>
+                                    <span
+                                        className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border inline-block ${userToDelete.status === "pending"
+                                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                                            : userToDelete.status === "approved"
+                                                ? "bg-red-50 text-red-700 border-red-200"
+                                                : "bg-slate-100 text-slate-600 border-slate-200"
+                                            }`}
+                                    >
+                                        {userToDelete.status}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 w-full mt-6">
+                                <button
+                                    onClick={() => {
+                                        setDeleteModalOpen(false);
+                                        setUserToDelete(null);
+                                    }}
+                                    className="flex-1 py-4 rounded-2xl font-bold text-slate-600 bg-white border-2 border-slate-100 hover:bg-slate-50 transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={confirmDelete}
+                                    className="flex-1 py-4 rounded-2xl font-bold text-white bg-red-600 shadow-lg shadow-red-200 hover:bg-red-700 transition-all"
+                                >
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
         </div>
     );

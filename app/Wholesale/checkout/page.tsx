@@ -29,6 +29,7 @@ export default function CheckoutPage() {
     const [cartItems, setCartItems] = useState<any[]>([]);
     const [dbAddresses, setDbAddresses] = useState<any[]>([]);
     const [profileAddresses, setProfileAddresses] = useState<any[]>([]);
+    const [userProfile, setUserProfile] = useState<any>(null); // Added to store user details for admin email
     const [selectedAddressId, setSelectedAddressId] = useState<string | null>('reg');
     const [selectedAddressText, setSelectedAddressText] = useState<string>("");
     const [showAddressForm, setShowAddressForm] = useState(false);
@@ -153,16 +154,18 @@ export default function CheckoutPage() {
                 .single();
             setBankDetails(bankData);
 
-const { data: profile, error: profileError } = await supabase
-    .from("wholesale_users")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
+            const { data: profile, error: profileError } = await supabase
+                .from("wholesale_users")
+                .select("*")
+                .eq("id", user.id)
+                .maybeSingle();
 
-if (profileError) console.error("Profile fetch error:", profileError);
-if (!profile) {
-    toast.error("Couldn't load your account details. Please contact support.");
-}
+            if (profileError) console.error("Profile fetch error:", profileError);
+            if (!profile) {
+                toast.error("Couldn't load your account details. Please contact support.");
+            } else {
+                setUserProfile(profile); // Save profile for email notification
+            }
 
             const transport = profile?.transport_charge || 0;
             const handling = profile?.handling_fees || 0;
@@ -427,6 +430,26 @@ if (!profile) {
                 .eq("user_id", user.id);
 
             window.dispatchEvent(new Event("cartUpdated"));
+
+            // ── TRIGGER ADMIN NOTIFICATION EMAIL ──
+            try {
+                await fetch('/api/notify-admin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        orderId: customId,
+                        total: total,
+                        paymentMethod: paymentMethod,
+                        customerName: userProfile?.company_name || userProfile?.owner_name || 'Valued Customer',
+                        customerPhone: userProfile?.phone || 'N/A',
+                        address: selectedAddressText,
+                        items: orderItemsSnapshot,
+                        deliveryEstimate: `${deliveryLabel} (${deliveryDateStr})`
+                    })
+                });
+            } catch (emailError) {
+                console.error("Admin email notification failed to send:", emailError);
+            }
 
             // ── Close the payment popup, show the success/savings/delivery popup instead of redirecting immediately ──
             setShowPaymentPopup(false);
