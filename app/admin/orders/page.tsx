@@ -123,42 +123,63 @@ export default function AdminOrdersPage() {
         }
     };
 
-    const updateStatus = async (orderId: string, updates: any) => {
-        try {
-            setUpdating(true);
-            const { data, error } = await supabase
-                .from("orders")
-                .update(updates)
-                .eq("id", orderId)
-                .select();
+const updateStatus = async (order: any, updates: any) => {
+    try {
+        setUpdating(true);
+        const { data, error } = await supabase
+            .from("orders")
+            .update(updates)
+            .eq("id", order.id)
+            .select();
 
-            if (error) throw error;
+        if (error) throw error;
 
-            if (!data || data.length === 0) {
-                toast.error("Update failed: Record not found");
-                return;
-            }
-
-            // Update local state for the main list
-            setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o));
-
-            // Sync the slide-over view if open
-            if (selectedClient) {
-                setSelectedClient((prev: any) => ({
-                    ...prev,
-                    all_orders: prev.all_orders.map((o: any) =>
-                        o.id === orderId ? { ...o, ...updates } : o
-                    )
-                }));
-            }
-
-            toast.success("Database Updated Successfully");
-        } catch (err: any) {
-            toast.error(`Update Failed: ${err.message}`);
-        } finally {
-            setUpdating(false);
+        if (!data || data.length === 0) {
+            toast.error("Update failed: Record not found");
+            return;
         }
-    };
+
+        setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...updates } : o));
+
+        if (selectedClient) {
+            setSelectedClient((prev: any) => ({
+                ...prev,
+                all_orders: prev.all_orders.map((o: any) =>
+                    o.id === order.id ? { ...o, ...updates } : o
+                )
+            }));
+        }
+
+        toast.success("Database Updated Successfully");
+
+        // ── Notify wholesaler by email ──
+        const wholesalerEmail = order.wholesale_users?.email;
+        if (wholesalerEmail) {
+            try {
+                await fetch('/api/notify-customer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        toEmail: wholesalerEmail,
+                        customerName: order.wholesale_users?.company_name || order.wholesale_users?.owner_name,
+                        orderId: order.order_id_custom,
+                        orderStatus: updates.order_status ?? order.order_status,
+                        paymentStatus: updates.payment_status ?? order.payment_status,
+                        totalAmount: order.total_payable_amount,
+                        remainingBalance: order.remaining_balance,
+                    })
+                });
+            } catch (emailErr) {
+                console.error("Customer email notification failed:", emailErr);
+            }
+        }
+
+    } catch (err: any) {
+        toast.error(`Update Failed: ${err.message}`);
+    } finally {
+        setUpdating(false);
+    }
+};
 
     const generateCombinedPDF = () => {
         if (!selectedClient) return;
@@ -776,12 +797,12 @@ function OrderCard({ order, updateStatus, getStatusStyle, updating }: any) {
 
                         {/* Order Status Select */}
                         <div className="relative">
-                            <select
-                                className={`w-full p-3.5 rounded-xl border-2 text-xs font-bold uppercase cursor-pointer outline-none transition-all shadow-sm ${getStatusStyle(order.order_status)}`}
-                                value={order.order_status}
-                                onChange={(e) => updateStatus(order.id, { order_status: e.target.value })}
-                                disabled={updating || order.order_status === "delivered"}
-                            >
+                       <select
+    className={`w-full p-3.5 rounded-xl border-2 text-xs font-bold uppercase cursor-pointer outline-none transition-all shadow-sm ${getStatusStyle(order.order_status)}`}
+    value={order.order_status}
+    onChange={(e) => updateStatus(order, { order_status: e.target.value })}
+    disabled={updating || order.order_status === "delivered"}
+>
                                 <option value="processing">Confirmed</option>
                                 <option value="shipped">Shipped</option>
                                 <option value="delivered">Delivered</option>
@@ -791,12 +812,12 @@ function OrderCard({ order, updateStatus, getStatusStyle, updating }: any) {
 
                         {/* Payment Status Select */}
                         <div className="relative">
-                            <select
-                                className={`w-full p-3.5 rounded-xl border-2 text-xs font-bold uppercase cursor-pointer outline-none transition-all shadow-sm ${getStatusStyle(order.payment_status)}`}
-                                value={order.payment_status}
-                                onChange={(e) => updateStatus(order.id, { payment_status: e.target.value })}
-                                disabled={updating || order.payment_status === "paid"}
-                            >
+                      <select
+    className={`w-full p-3.5 rounded-xl border-2 text-xs font-bold uppercase cursor-pointer outline-none transition-all shadow-sm ${getStatusStyle(order.payment_status)}`}
+    value={order.payment_status}
+    onChange={(e) => updateStatus(order, { payment_status: e.target.value })}
+    disabled={updating || order.payment_status === "paid"}
+>
                                 <option value="pending">Pending Payment</option>
                                 <option value="paid">Mark as Fully Paid</option>
                             </select>

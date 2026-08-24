@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Image from "next/image";
 import Link from "next/link";
-import { Trash2, Minus, Plus, ShoppingBag, ArrowRight, Loader2, PackageCheck, LockKeyhole, Tag, AlertCircle } from "lucide-react";
+import { Trash2, Minus, Plus, ShoppingBag, ArrowRight, Loader2, PackageCheck, LockKeyhole, Tag, AlertCircle, Sparkles } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 import AuthModal from "@/Components/AuthModal";
 
@@ -36,6 +36,19 @@ interface CartItem {
   product_variants: ProductVariant | null;
 }
 
+// Flat discount applied to a wholesaler's very first order
+const NEW_ORDER_DISCOUNT = 50;
+
+// Formats a rupee amount, only showing decimals when the amount actually has them,
+// so whole-number charges stay clean (₹0) while precise totals stay accurate (₹3,450.24)
+const formatCurrency = (amount: number): string => {
+  const hasDecimals = Math.abs(amount % 1) > 0.004; // guard against float noise like 3450.0000001
+  return amount.toLocaleString("en-IN", {
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
+};
+
 export default function CartPage() {
   const router = useRouter();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -45,6 +58,7 @@ export default function CartPage() {
   const [transportCharge, setTransportCharge] = useState<number>(0);
   const [platformCharge] = useState<number>(80);
   const [handlingFees, setHandlingFees] = useState<number>(0);
+  const [isFirstOrder, setIsFirstOrder] = useState(false);
   const MIN_ORDER_VALUE = 1500;
 
   useEffect(() => {
@@ -60,6 +74,7 @@ export default function CartPage() {
       const userId = session?.user?.id || JSON.parse(userStr!).id;
       fetchCart(userId);
       fetchCharges(userId);
+      checkFirstOrder(userId);
     } else {
       setIsLoggedIn(false);
       setLoading(false);
@@ -120,6 +135,26 @@ export default function CartPage() {
     }
   };
 
+  // Looks for any previously placed order for this wholesaler. No rows = first order,
+  // which qualifies for the flat ₹50 new-order discount.
+  // NOTE: adjust the table/column names below ("orders" / "user_id") if yours differ.
+  const checkFirstOrder = async (userId: string) => {
+    try {
+      const { data, error, count } = await supabase
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId);
+
+      if (error) throw error;
+      setIsFirstOrder((count ?? 0) === 0);
+    } catch (err) {
+      // If the orders table/columns aren't set up yet, fail safe with no discount
+      // rather than breaking the cart page.
+      console.log("First order check failed", err);
+      setIsFirstOrder(false);
+    }
+  };
+
   const calculateItemPrice = (item: CartItem): number => {
     const variant = item.product_variants;
     if (!variant) return 0;
@@ -173,11 +208,17 @@ export default function CartPage() {
     return acc + (pricePerUnit * item.quantity);
   }, 0);
 
-  const grandTotal = Math.round(subtotal + transportCharge + handlingFees);
   const isBelowMinimum = subtotal < MIN_ORDER_VALUE && cartItems.length > 0;
 
   // Check if any cart item is out of stock
   const hasOutOfStockItems = cartItems.some(item => (item.product_variants?.stock || 0) <= 0);
+
+  // Discount only applies once there's actually something to order
+  const newOrderDiscount = isFirstOrder && cartItems.length > 0 ? NEW_ORDER_DISCOUNT : 0;
+
+  // Kept as exact decimal math all the way through — no intermediate rounding —
+  // so this always equals the sum of the line items shown above it.
+  const grandTotal = Math.max(0, subtotal + transportCharge + handlingFees - newOrderDiscount);
 
   const isCheckoutDisabled = isBelowMinimum || cartItems.length === 0 || hasOutOfStockItems;
 
@@ -233,6 +274,16 @@ export default function CartPage() {
       <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-12 gap-10">
         {/* Items List */}
         <div className="lg:col-span-8 space-y-4">
+          {/* New order discount banner */}
+          {isFirstOrder && cartItems.length > 0 && (
+            <div className="bg-green-50 border border-green-100 rounded-2xl p-4 flex items-center gap-3">
+              <Sparkles className="text-green-600 shrink-0" size={18} />
+              <p className="text-[11px] font-black text-green-700 uppercase tracking-wide">
+                Welcome! ₹{NEW_ORDER_DISCOUNT} discount applied on your first order.
+              </p>
+            </div>
+          )}
+
           {cartItems.length > 0 ? cartItems.map((item) => {
             const variant = item.product_variants;
             if (!variant) return null;
@@ -323,7 +374,7 @@ export default function CartPage() {
                       <p className="text-sm font-black text-slate-300 uppercase tracking-tight">Unavailable</p>
                     ) : (
                       <>
-                        <p className="text-lg font-black text-slate-900 tracking-tighter">₹{(currentUnitPrice * item.quantity).toLocaleString()}</p>
+                        <p className="text-lg font-black text-slate-900 tracking-tighter">₹{formatCurrency(currentUnitPrice * item.quantity)}</p>
                         <p className="text-[8px] font-bold text-slate-400 uppercase">₹{currentUnitPrice}/unit</p>
                       </>
                     )}
@@ -359,20 +410,26 @@ export default function CartPage() {
             <div className="space-y-3 mb-8">
               <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                 <span>Total Items (Ex. Tax)</span>
-                <span className="text-slate-900">₹{subtotal.toLocaleString()}</span>
+                <span className="text-slate-900">₹{formatCurrency(subtotal)}</span>
               </div>
               <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                 <span>Transport / Logistics</span>
-                <span className="text-slate-900">₹{transportCharge.toLocaleString()}</span>
+                <span className="text-slate-900">₹{formatCurrency(transportCharge)}</span>
               </div>
               <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                 <span>Service & Handling</span>
-                <span className="text-slate-900">₹{handlingFees.toLocaleString()}</span>
+                <span className="text-slate-900">₹{formatCurrency(handlingFees)}</span>
               </div>
+              {newOrderDiscount > 0 && (
+                <div className="flex justify-between text-[10px] font-bold text-green-600 uppercase tracking-widest">
+                  <span className="flex items-center gap-1"><Sparkles size={11} /> New Order Discount</span>
+                  <span>- ₹{formatCurrency(newOrderDiscount)}</span>
+                </div>
+              )}
               <div className="h-px bg-slate-100 my-4" />
               <div className="flex justify-between items-end">
                 <span className="text-[10px] font-black uppercase text-slate-400">Total Payable</span>
-                <span className="text-3xl font-black text-slate-900 tracking-tighter">₹{grandTotal.toLocaleString()}</span>
+                <span className="text-3xl font-black text-slate-900 tracking-tighter">₹{formatCurrency(grandTotal)}</span>
               </div>
             </div>
 
@@ -392,7 +449,7 @@ export default function CartPage() {
                 <AlertCircle className="text-red-600 shrink-0" size={18} />
                 <p className="text-[10px] font-black text-red-600 uppercase leading-relaxed tracking-tight">
                   Minimum Order Value is ₹{MIN_ORDER_VALUE.toLocaleString()}.
-                  Please add items worth ₹{(MIN_ORDER_VALUE - subtotal).toLocaleString()} more to proceed.
+                  Please add items worth ₹{formatCurrency(MIN_ORDER_VALUE - subtotal)} more to proceed.
                 </p>
               </div>
             )}

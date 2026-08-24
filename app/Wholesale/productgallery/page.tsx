@@ -72,25 +72,31 @@ useEffect(() => {
 
             let processedData = data || [];
 
-            // 2. MANUAL CLIENT-SIDE SORTING
-            // We sort based on the first variant's wholesale_price
-            if (filters.sort === "low") {
-                processedData.sort((a, b) => {
+            // Helper: does this product have ANY variant with stock left?
+            const hasStock = (p: any) =>
+                (p.product_variants || []).some((v: any) => (v.stock || 0) > 0);
+
+            // 2. SORT: in-stock products always first, out-of-stock always last.
+            // Within each of those two groups, apply the user's chosen sort
+            // (price low/high, newest) as a secondary tie-breaker.
+            processedData.sort((a: any, b: any) => {
+                const aRank = hasStock(a) ? 0 : 1;
+                const bRank = hasStock(b) ? 0 : 1;
+                if (aRank !== bRank) return aRank - bRank;
+
+                if (filters.sort === "low") {
                     const priceA = a.product_variants?.[0]?.wholesale_price || 0;
                     const priceB = b.product_variants?.[0]?.wholesale_price || 0;
                     return priceA - priceB;
-                });
-            } else if (filters.sort === "high") {
-                processedData.sort((a, b) => {
+                } else if (filters.sort === "high") {
                     const priceA = a.product_variants?.[0]?.wholesale_price || 0;
                     const priceB = b.product_variants?.[0]?.wholesale_price || 0;
                     return priceB - priceA; // Higher price first
-                });
-            } else if (filters.sort === "newest") {
-                processedData.sort((a, b) => 
-                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                );
-            }
+                } else if (filters.sort === "newest") {
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                }
+                return 0;
+            });
 
             setProducts(processedData);
         } catch (err: any) {

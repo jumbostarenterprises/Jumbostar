@@ -32,7 +32,7 @@ export default function AuthModal({
         gstNumber: "",
         ownerName: "",
         ownerDob: "",
-        regAddress: "",
+        // NOTE: regAddress removed per request — shopAddress is now the single address field
         shopAddress: "",
         mapLink: ""
     });
@@ -66,7 +66,7 @@ export default function AuthModal({
     };
 
     const checkStep3 = () => {
-        if (!formData.regAddress.trim()) { toast.error("Registered Office Address is required"); return false; }
+        // regAddress check removed
         if (!formData.shopAddress.trim()) { toast.error("Shop/Delivery Address is required"); return false; }
         if (!formData.mapLink.trim()) { toast.error("Please provide a Google Maps link"); return false; }
         if (!validateMapsLink(formData.mapLink)) { toast.error("Format error: Please copy the link from Google Maps"); return false; }
@@ -87,7 +87,6 @@ export default function AuthModal({
         if (!validatePhone(formData.phone)) return toast.error("Enter a valid 10-digit phone");
         setLoading(true);
         try {
-            // Check if user is registered and approved in the custom table
             const { data: userData, error: userError } = await supabase
                 .from("wholesale_users")
                 .select("*")
@@ -98,7 +97,6 @@ export default function AuthModal({
             if (!userData) return toast.error("Mobile number not registered");
             if (userData.status !== "approved") return toast.error(`Account Status: ${userData.status.toUpperCase()}`);
 
-            // Log the user in directly — no OTP verification
             localStorage.setItem("wholesale_user", JSON.stringify(userData));
             window.dispatchEvent(new Event("wholesale_login"));
             toast.success("Logged in successfully!");
@@ -123,7 +121,10 @@ export default function AuthModal({
                 gst_number: formData.gstNumber || null,
                 owner_name: formData.ownerName,
                 owner_dob: formData.ownerDob || null,
-                registered_address: formData.regAddress,
+                // registered_address column no longer collected in the UI.
+                // If that DB column is NOT NULL, either drop the constraint or
+                // keep this line so it's populated with the shop address instead:
+                registered_address: formData.shopAddress,
                 shop_address: formData.shopAddress,
                 google_maps_link: formData.mapLink,
                 status: "pending"
@@ -141,7 +142,10 @@ export default function AuthModal({
     const reverseGeocode = async (lat: number, lon: number): Promise<string> => {
         try {
             const res = await fetch(`/api/geocode?lat=${lat}&lon=${lon}`);
-            if (!res.ok) return "";
+            if (!res.ok) {
+                console.error("Reverse geocode request failed:", res.status, await res.text().catch(() => ""));
+                return "";
+            }
             const data = await res.json();
             if (!data?.address) return "";
             const a = data.address;
@@ -156,7 +160,8 @@ export default function AuthModal({
                 a.postcode || "",
             ].filter(Boolean);
             return parts.join(", ");
-        } catch {
+        } catch (err) {
+            console.error("Reverse geocode error:", err);
             return "";
         }
     };
@@ -204,7 +209,6 @@ export default function AuthModal({
             ...prev,
             mapLink: mapsLink,
             shopAddress: prev.shopAddress.trim() ? prev.shopAddress : address,
-            regAddress: prev.regAddress.trim() ? prev.regAddress : address,
         }));
         if (address) {
             toast.success("✅ Address auto-filled! Review and edit if needed.", { duration: 4000 });
@@ -213,41 +217,96 @@ export default function AuthModal({
         }
     };
 
+    // Wraps navigator.geolocation.getCurrentPosition in a Promise with
+    // explicit options, so we can retry with different settings on failure.
+    const getWebPosition = (options: PositionOptions): Promise<{ lat: number; lon: number }> => {
+        return new Promise((resolve, reject) => {
+            if (!("geolocation" in navigator)) {
+                reject({ code: 0, message: "Geolocation not supported by this browser" });
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+                (err) => reject(err),
+                options
+            );
+        });
+    };
+
+    // NEW: more resilient location fetch.
+    // - Checks/requests permission explicitly on native before calling getCurrentPosition.
+    // - On web, checks the Permissions API first (when available) to fail fast with a clear message
+    //   if the user has already blocked location, instead of silently timing out.
+    // - Retries once with relaxed accuracy/longer timeout if the first high-accuracy attempt times out,
+    //   since GPS-lock timeouts are the most common real-world failure (indoors, poor signal, etc).
     const fetchLocationNative = async (): Promise<{ lat: number; lon: number }> => {
         if (Capacitor.isNativePlatform()) {
-            const perm = await Geolocation.requestPermissions();
-            if (perm.location !== "granted") {
-                throw { code: 1 };
+            const currentPerm = await Geolocation.checkPermissions();
+            let granted = currentPerm.location === "granted" || currentPerm.coarseLocation === "granted";
+
+            if (!granted) {
+                const requested = await Geolocation.requestPermissions();
+                granted = requested.location === "granted" || requested.coarseLocation === "granted";
             }
-            const pos = await Geolocation.getCurrentPosition({
-                enableHighAccuracy: true,
-                timeout: 15000,
-            });
-            return { lat: pos.coords.latitude, lon: pos.coords.longitude };
-        } else {
-            return new Promise((resolve, reject) => {
-                navigator.geolocation.getCurrentPosition(
-                    (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
-                    reject,
-                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-                );
-            });
+
+            if (!granted) {
+                throw { code: 1, message: "Location permission denied" };
+            }
+
+            try {
+                const pos = await Geolocation.getCurrentPosition({
+                    enableHighAccuracy: true,
+                    timeout: 15000,
+                });
+                return { lat: pos.coords.latitude, lon: pos.coords.longitude };
+            } catch (highAccuracyErr) {
+                // Retry once with relaxed accuracy — common fix for indoor/weak-GPS timeouts
+                const pos = await Geolocation.getCurrentPosition({
+                    enableHighAccuracy: false,
+                    timeout: 20000,
+                });
+                return { lat: pos.coords.latitude, lon: pos.coords.longitude };
+            }
+        }
+
+        // Web path
+        if (typeof navigator !== "undefined" && "permissions" in navigator) {
+            try {
+                const status = await (navigator as any).permissions.query({ name: "geolocation" });
+                if (status.state === "denied") {
+                    throw { code: 1, message: "Location permission denied" };
+                }
+            } catch {
+                // Permissions API not supported for geolocation in this browser — ignore and proceed
+            }
+        }
+
+        try {
+            return await getWebPosition({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+        } catch (highAccuracyErr: any) {
+            if (highAccuracyErr?.code === 1) throw highAccuracyErr; // permission denied — don't retry
+            // Retry once with relaxed accuracy/longer timeout/allow cached fix
+            return await getWebPosition({ enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 });
         }
     };
 
     const handleUseMyLocation = async () => {
+        if (locationLoading) return;
         setLocationLoading(true);
         try {
             const { lat, lon } = await fetchLocationNative();
             await applyLocation(lat, lon);
         } catch (err: any) {
+            console.error("Location fetch failed:", err);
             const code = err?.code;
             if (code === 1) {
                 showPermissionGuide();
             } else if (code === 2) {
                 toast.error("📡 Location unavailable. Enable GPS and try again.", { duration: 6000 });
             } else if (code === 3) {
-                toast.error("⏱ Location timed out. Check GPS and try again.", { duration: 5000 });
+                toast.error("⏱ Location timed out even after retry. Check GPS signal and try again, or paste a Google Maps link manually.", { duration: 6000 });
+            } else if (code === 0) {
+                toast.error("Location isn't supported on this device/browser. Paste a Google Maps link manually.", { duration: 6000 });
             } else {
                 toast.error("Unable to get location. Paste a Google Maps link manually.");
             }
@@ -379,16 +438,7 @@ export default function AuthModal({
                                                     </p>
                                                 </div>
 
-                                                <div>
-                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Registered Office Address *</p>
-                                                    <textarea
-                                                        name="regAddress"
-                                                        onChange={handleChange}
-                                                        value={formData.regAddress}
-                                                        className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-[10px] h-16 resize-none focus:border-slate-300 transition-all"
-                                                        placeholder="Auto-filled from location or type manually..."
-                                                    />
-                                                </div>
+                                                {/* Registered Office Address field removed */}
 
                                                 <div>
                                                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Shop / Delivery Address *</p>

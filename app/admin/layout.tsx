@@ -5,8 +5,9 @@ import { useRouter, usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Boxes,
-  Layers,
-  ListTree, CreditCard, Coins ,
+  ListTree, 
+  CreditCard, 
+  Coins,
   PackagePlus,
   Edit,
   Truck,
@@ -14,11 +15,13 @@ import {
   ShoppingCart,
   ImageIcon,
   LogOut,
-  Bell,
   ChevronRight,
   UserCircle,
-  Landmark   // ✅ ADD THIS
+  Landmark,
+  Menu,
+  X
 } from "lucide-react";
+
 export default function AdminHeader({
   children,
 }: {
@@ -27,6 +30,7 @@ export default function AdminHeader({
   const router = useRouter();
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const adminEmail = "Jsadmin@gmail.com";
 
@@ -43,39 +47,42 @@ export default function AdminHeader({
     router.push("/adminlogin");
   };
 
-const menuItems = [
+  const menuItems = [
     { name: "Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
     { name: "Main Categories", path: "/admin/categories", icon: Boxes },
-    { name: "Sub Categories", path: "/admin/subcategories", icon: ListTree  },
-    // --- NEW TAB ADDED BELOW ---
-    //{ name: "SubCategories", path: "/admin/innercategories", icon: ListTree },
-    // ---------------------------
+    { name: "Sub Categories", path: "/admin/subcategories", icon: ListTree },
     { name: "Add Product", path: "/admin/add-product", icon: PackagePlus },
     { name: "Update Price & Stock", path: "/admin/update-stock", icon: Edit },
     { name: "Wholesale Management", path: "/admin/wholesale", icon: Users },
     { name: "Bank Details", path: "/admin/bank-details", icon: Landmark },
     { name: "Orders", path: "/admin/orders", icon: ShoppingCart },
     { name: "Payment Approvals", path: "/admin/payment-approvals", icon: CreditCard },
-    // --- DELIVERY ALLOTMENT TAB ADDED HERE ---
     { name: "Delivery Allotment", path: "/admin/delivery", icon: Truck },
-    // -----------------------------------------
-    // --- DELIVERY PAYMENT TAB ADDED HERE ---
     { name: "Delivery Payment", path: "/admin/delivery/payments", icon: Coins },
-    // -----------------------------------------
     { name: "Banner Management", path: "/admin/banner", icon: ImageIcon },
   ];
 
   if (!mounted) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#FDFEFF]">
+    <div className="flex h-screen overflow-hidden bg-[#FDFEFF]" style={{ fontFamily: 'var(--font-display)' }}>
       
+      {/* --- MOBILE OVERLAY BACKDROP --- */}
+      {mobileMenuOpen && (
+        <div 
+          onClick={() => setMobileMenuOpen(false)}
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden transition-opacity"
+        />
+      )}
+
       {/* --- SIDEBAR --- */}
-      <aside className="w-72 bg-white border-r border-gray-100 flex flex-col fixed h-full z-50 transition-all duration-300">
+      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-gray-100 flex flex-col transition-transform duration-300 ease-in-out md:translate-x-0 ${
+        mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+      }`}>
         
         {/* Logo Section */}
-        <div className="p-8">
-          <div className="flex items-center gap-4 group cursor-pointer" onClick={() => router.push('/admin/dashboard')}>
+        <div className="p-6 md:p-8 flex items-center justify-between">
+          <div className="flex items-center gap-4 group cursor-pointer" onClick={() => { router.push('/admin/dashboard'); setMobileMenuOpen(false); }}>
             <div className="w-12 h-12 bg-red-600 text-white flex items-center justify-center rounded-2xl font-black text-2xl shadow-lg shadow-red-200 group-hover:rotate-6 transition-transform">
               J
             </div>
@@ -89,6 +96,13 @@ const menuItems = [
               </div>
             </div>
           </div>
+          {/* Close button on mobile view */}
+          <button 
+            onClick={() => setMobileMenuOpen(false)}
+            className="md:hidden p-2 text-gray-400 hover:text-gray-600 rounded-xl"
+          >
+            <X size={20} />
+          </button>
         </div>
 
         {/* Navigation Menu */}
@@ -102,7 +116,10 @@ const menuItems = [
             return (
               <button
                 key={item.name}
-                onClick={() => router.push(item.path)}
+                onClick={() => {
+                  router.push(item.path);
+                  setMobileMenuOpen(false);
+                }}
                 className={`w-full flex items-center justify-between group px-4 py-3 rounded-2xl transition-all duration-300 ${
                   isActive
                     ? "bg-red-600 text-white shadow-xl shadow-red-100"
@@ -140,29 +157,35 @@ const menuItems = [
       </aside>
 
       {/* --- MAIN CONTENT AREA --- */}
-      <div className="flex-1 flex flex-col ml-72">
+      <div className="flex-1 flex flex-col ml-0 md:ml-72 w-full">
 
         {/* STICKY TOP HEADER */}
-        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-gray-100 px-10 py-5 flex justify-between items-center">
-          <div>
-            <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em]">
-              Administration
-            </h2>
-            <p className="text-xl font-bold text-gray-900 tracking-tight">
-              {pathname === "/admin/dashboard" ? "Dashboard Overview" : pathname.split("/").pop()?.replace("-", " ").toUpperCase()}
-            </p>
+        <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-gray-100 px-4 md:px-10 py-4 md:py-5 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            {/* Hamburger button for mobile */}
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="md:hidden p-2.5 rounded-xl bg-gray-50 border border-gray-100 text-gray-700 hover:bg-gray-100 transition-colors"
+              aria-label="Open Menu"
+            >
+              <Menu size={20} />
+            </button>
+            <div>
+              <h2 className="text-[9px] md:text-[10px] font-black text-gray-400 uppercase tracking-[0.3em]">
+                Administration
+              </h2>
+              <p className="text-base md:text-xl font-bold text-gray-900 tracking-tight truncate max-w-[180px] sm:max-w-xs">
+                {pathname === "/admin/dashboard" ? "Dashboard Overview" : pathname.split("/").pop()?.replace("-", " ").toUpperCase()}
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-6">
-           
-            
-            <div className="h-8 w-[1px] bg-gray-100"></div>
-
-            <div className="flex items-center gap-4 bg-gray-50 pl-2 pr-4 py-1.5 rounded-2xl border border-gray-100">
-              <div className="w-8 h-8 rounded-xl bg-red-600 flex items-center justify-center text-white shadow-md">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 bg-gray-50 pl-2 pr-3 md:pr-4 py-1.5 rounded-2xl border border-gray-100">
+              <div className="w-8 h-8 rounded-xl bg-red-600 flex items-center justify-center text-white shadow-md shrink-0">
                 <UserCircle size={20} />
               </div>
-              <div className="flex flex-col">
+              <div className="hidden sm:flex flex-col">
                 <span className="text-[10px] font-black text-gray-400 uppercase leading-none">Logged in as</span>
                 <span className="text-xs font-bold text-gray-800 tracking-tight">{adminEmail}</span>
               </div>
@@ -171,8 +194,8 @@ const menuItems = [
         </header>
 
         {/* PAGE CONTENT */}
-        <main className="flex-1 overflow-y-auto p-1">
-          <div className="max-w-15xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-500">
+        <main className="flex-1 overflow-y-auto p-2 md:p-6">
+          <div className="max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-500">
             {children}
           </div>
         </main>

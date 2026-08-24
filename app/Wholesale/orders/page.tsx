@@ -14,6 +14,7 @@ export default function WholesaleOrders() {
     const [orders, setOrders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [processingId, setProcessingId] = useState<string | null>(null);
+    const [cancellingId, setCancellingId] = useState<string | null>(null);
     const [returns, setReturns] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState<"orders" | "returns">("orders");
     const [showPaymentPopup, setShowPaymentPopup] = useState(false);
@@ -154,7 +155,7 @@ export default function WholesaleOrders() {
                         try {
                             const userStr = localStorage.getItem("wholesale_user");
                             const user = userStr ? JSON.parse(userStr) : null;
-                            await fetch("/api/send-order-email", {
+                            await fetch("/api/order/osend-order-email", {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({
@@ -229,6 +230,56 @@ export default function WholesaleOrders() {
         }
     };
 
+    // ── Fires the two cancellation notifications (admin + customer). ──
+    // Both calls are independently wrapped so one failing never blocks the other,
+    // and neither failing blocks the cancellation flow itself (called after DB update succeeds).
+    const sendCancellationEmails = async (order: any) => {
+        const userStr = localStorage.getItem("wholesale_user");
+        const user = userStr ? JSON.parse(userStr) : null;
+        const total = Number(order.total_payable_amount || order.total_amount);
+        const paid = Number(order.amount_paid_now || 0);
+
+        // Admin notification — same endpoint/shape used on order placement
+        try {
+            await fetch('/api/order/notify-admin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId: order.order_id_custom,
+                    total,
+                    paymentMethod: order.payment_type,
+                    customerName: user?.company_name || user?.owner_name || 'Valued Customer',
+                    customerPhone: user?.phone || 'N/A',
+                    address: order.address_snapshot,
+                    items: order.items,
+                    status: "Order Cancelled by Customer"
+                })
+            });
+        } catch (emailError) {
+            console.error("Cancellation admin notification failed to send:", emailError);
+        }
+
+        // Customer-facing confirmation — same endpoint/shape used on settlement
+        try {
+            await fetch("/api/order/send-order-email", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    email: user?.email || order.user_email,
+                    orderId: order.order_id_custom,
+                    status: "Order Cancelled",
+                    items: order.items,
+                    total,
+                    paid,
+                    remaining: 0,
+                    address: order.address_snapshot,
+                }),
+            });
+        } catch (emailError) {
+            console.error("Cancellation customer email failed to send:", emailError);
+        }
+    };
+
     // ─── RESTOCK ON CANCEL ───────────────────────────────────────────────────────
     const cancelOrder = async (orderId: string) => {
         const order = orders.find((o) => o.id === orderId);
@@ -242,6 +293,7 @@ export default function WholesaleOrders() {
         const confirmCancel = window.confirm("Are you sure you want to cancel this order?");
         if (!confirmCancel) return;
 
+        setCancellingId(orderId);
         try {
             if (!order) throw new Error("Order not found");
 
@@ -251,6 +303,11 @@ export default function WholesaleOrders() {
                 .update({ order_status: "cancelled", updated_at: new Date().toISOString() })
                 .eq("id", orderId);
             if (cancelError) throw cancelError;
+
+            // ── NOTIFY ADMIN + CUSTOMER OF CANCELLATION ──
+            // Fired right after the status update succeeds, before restocking,
+            // so the notification goes out even if a stock item fails to restock below.
+            await sendCancellationEmails(order);
 
             // 2. Restock each item
             const restockErrors: string[] = [];
@@ -331,6 +388,8 @@ export default function WholesaleOrders() {
         } catch (err) {
             console.error(err);
             toast.error("Failed to cancel order");
+        } finally {
+            setCancellingId(null);
         }
     };
     // ─────────────────────────────────────────────────────────────────────────────
@@ -641,8 +700,10 @@ export default function WholesaleOrders() {
                                                     {canCancel ? (
                                                         <button
                                                             onClick={() => cancelOrder(order.id)}
-                                                            className="w-full mt-3 bg-white border border-red-200 text-red-600 hover:bg-red-50 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                                                            disabled={cancellingId === order.id}
+                                                            className="w-full mt-3 bg-white border border-red-200 text-red-600 hover:bg-red-50 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 disabled:opacity-60"
                                                         >
+                                                            {cancellingId === order.id ? <Loader2 className="animate-spin" size={14} /> : null}
                                                             Cancel Order
                                                         </button>
                                                     ) : (
