@@ -46,6 +46,9 @@ jobs:
       - name: Capacitor Sync
         run: npx cap sync android
 
+      - name: Inject google-services.json
+        run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+
       - name: Decode Production Keystore
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > jumbostar-release.jks
