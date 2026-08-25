@@ -142,7 +142,11 @@ export default function WholesaleManagement() {
         setEditProfile(true);
         setEditCharges(false);
     };
-
+    // Add this helper near the top of the file, above the component
+    const truncateText = (text: string, maxLength: number = 20) => {
+        if (!text) return text;
+        return text.length > maxLength ? text.slice(0, maxLength) + "..." : text;
+    };
     const saveProfile = async () => {
         if (!selectedUser) return;
 
@@ -350,14 +354,21 @@ export default function WholesaleManagement() {
                     {/* DESKTOP TABLE (lg and up only) */}
                     <div className="hidden lg:block bg-white rounded-[2.5rem] border border-red-100 shadow-xl shadow-red-900/5 overflow-hidden">
                         <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
+                            <table className="w-full table-fixed text-left border-collapse">
+                                <colgroup>
+                                    <col className="w-[22%]" />
+                                    <col className="w-[18%]" />
+                                    <col className="w-[24%]" />
+                                    <col className="w-[12%]" />
+                                    <col className="w-[24%]" />
+                                </colgroup>
                                 <thead>
                                     <tr className="bg-red-50/50 border-b border-red-100">
-                                        <th className="px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-700">Company / Tax ID</th>
-                                        <th className="px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-700">Primary Contact</th>
-                                        <th className="px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-700">Communication</th>
-                                        <th className="px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-700">Status</th>
-                                        <th className="px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-700 text-right">Actions</th>
+                                        <th className="px-3 py-3 text-[9px] font-black uppercase tracking-wider text-slate-700">Company / Tax ID</th>
+                                        <th className="px-3 py-3 text-[9px] font-black uppercase tracking-wider text-slate-700">Primary Contact</th>
+                                        <th className="px-3 py-3 text-[9px] font-black uppercase tracking-wider text-slate-700">Communication</th>
+                                        <th className="px-3 py-3 text-[9px] font-black uppercase tracking-wider text-slate-700">Status</th>
+                                        <th className="px-3 py-3 text-[9px] font-black uppercase tracking-wider text-slate-700 text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-red-50">
@@ -365,92 +376,89 @@ export default function WholesaleManagement() {
                                         <tr key={user.id} className="hover:bg-red-50/30 transition-colors group">
 
                                             {/* Company */}
-                                            <td className="px-8 py-6">
-                                                <div className="font-black text-slate-900 uppercase text-base">
-                                                    {user.company_name}
+                                            {/* Company */}
+                                            <td className="px-3 py-3 overflow-hidden">
+                                                <div className="font-black text-slate-900 uppercase text-[12px] truncate" title={user.company_name}>
+                                                    {truncateText(user.company_name, 20)}
                                                 </div>
-                                                <div className="text-xs font-bold text-red-600 mt-1 flex items-center gap-1">
-                                                    <Hash size={12} />
-                                                    {user.gst_number || "NO GST"}
+                                                <div className="text-[10px] font-bold text-red-600 mt-1 flex items-center gap-1 truncate">
+                                                    <Hash size={10} className="shrink-0" />
+                                                    <span className="truncate">{user.gst_number || "NO GST"}</span>
                                                 </div>
                                             </td>
 
                                             {/* Owner */}
-                                            <td className="px-8 py-6">
-                                                <div className="font-bold text-slate-800">
-                                                    {user.owner_name || "Not Provided"}
+                                            {/* Owner */}
+                                            <td className="px-3 py-3 overflow-hidden">
+                                                <div className="font-bold text-slate-800 text-[12px] truncate" title={user.owner_name || "Not Provided"}>
+                                                    {truncateText(user.owner_name || "Not Provided", 20)}
                                                 </div>
-                                                <div className="text-xs text-slate-500 font-medium">
-                                                    Joined {new Date(user.created_at).toLocaleDateString()}
+                                                <div className="text-[10px] text-slate-500 font-medium truncate">
+                                                    {new Date(user.created_at).toLocaleDateString()}
                                                 </div>
-                                                {user.owner_dob && (
-                                                    <div className="text-xs text-slate-400">
-                                                        DOB: {new Date(user.owner_dob).toLocaleDateString()}
-                                                    </div>
-                                                )}
                                             </td>
 
                                             {/* Contact */}
-                                            <td className="px-8 py-6">
-                                                <div className="flex items-center gap-2 text-sm text-slate-700 font-bold mb-1">
-                                                    <Mail size={14} className="text-red-400" />
-                                                    {user.email}
+                                            <td className="px-3 py-3 overflow-hidden">
+                                                <div className="flex items-center gap-1 text-[11px] text-slate-700 font-bold mb-1">
+                                                    <Mail size={11} className="text-red-400 shrink-0" />
+                                                    <span className="truncate">{user.email}</span>
                                                 </div>
-                                                <div className="flex items-center gap-2 text-sm text-slate-700 font-bold">
-                                                    <Phone size={14} className="text-red-400" />
-                                                    {user.phone}
+                                                <div className="flex items-center gap-1 text-[11px] text-slate-700 font-bold">
+                                                    <Phone size={11} className="text-red-400 shrink-0" />
+                                                    <span className="truncate">{user.phone}</span>
                                                 </div>
                                             </td>
 
                                             {/* Status */}
-                                            <td className="px-8 py-6">
-                                                <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${statusBadgeClasses(user.status)}`}>
+                                            <td className="px-3 py-3">
+                                                <span className={`inline-block px-2 py-1 rounded-full text-[8px] font-black uppercase tracking-wider border whitespace-nowrap ${statusBadgeClasses(user.status)}`}>
                                                     {user.status}
                                                 </span>
                                             </td>
 
                                             {/* Actions */}
-                                            <td className="px-8 py-6 text-right">
-                                                <div className="flex justify-end gap-2">
+                                            <td className="px-3 py-3 text-right">
+                                                <div className="flex justify-end gap-1 flex-wrap">
                                                     <button
                                                         onClick={() => openProfileEditor(user)}
-                                                        className="p-3 bg-slate-900 text-white rounded-2xl hover:bg-slate-700 transition-all shadow-sm"
+                                                        className="p-1.5 bg-slate-900 text-white rounded-lg hover:bg-slate-700 transition-all shadow-sm"
                                                         title="Edit Profile"
                                                     >
-                                                        <Pencil size={18} />
+                                                        <Pencil size={13} />
                                                     </button>
 
                                                     <button
                                                         onClick={() => { setSelectedUser(user); setEditProfile(false); setEditCharges(false); }}
-                                                        className="p-3 bg-white border border-red-100 rounded-2xl text-red-600 hover:bg-red-600 hover:text-white transition-all shadow-sm"
+                                                        className="p-1.5 bg-white border border-red-100 rounded-lg text-red-600 hover:bg-red-600 hover:text-white transition-all shadow-sm"
                                                         title="View"
                                                     >
-                                                        <Eye size={18} />
+                                                        <Eye size={13} />
                                                     </button>
 
                                                     <button
                                                         onClick={() => { setUserToDelete(user); setDeleteModalOpen(true); }}
-                                                        className="p-3 bg-white border border-red-100 rounded-2xl text-red-600 hover:bg-red-600 hover:text-white transition-all shadow-sm"
+                                                        className="p-1.5 bg-white border border-red-100 rounded-lg text-red-600 hover:bg-red-600 hover:text-white transition-all shadow-sm"
                                                         title="Delete Record"
                                                     >
-                                                        <Trash2 size={18} />
+                                                        <Trash2 size={13} />
                                                     </button>
 
                                                     {user.status === "pending" && (
                                                         <>
                                                             <button
                                                                 onClick={() => { setSelectedUser(user); setShowApproveInput(true); }}
-                                                                className="p-3 bg-white border border-red-100 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all shadow-sm"
+                                                                className="p-1.5 bg-white border border-red-100 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all shadow-sm"
                                                                 title="Approve"
                                                             >
-                                                                <CheckCircle2 size={18} />
+                                                                <CheckCircle2 size={13} />
                                                             </button>
                                                             <button
                                                                 onClick={() => handleStatusUpdate(user.id, "rejected")}
-                                                                className="p-3 bg-white border border-slate-200 text-slate-400 rounded-2xl hover:bg-slate-900 hover:text-white transition-all shadow-sm"
+                                                                className="p-1.5 bg-white border border-slate-200 text-slate-400 rounded-lg hover:bg-slate-900 hover:text-white transition-all shadow-sm"
                                                                 title="Reject"
                                                             >
-                                                                <XCircle size={18} />
+                                                                <XCircle size={13} />
                                                             </button>
                                                         </>
                                                     )}

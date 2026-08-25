@@ -17,9 +17,6 @@ interface Tier {
     price: string;
 }
 
-// Flat discount applied to a wholesaler's very first order — mirrors the cart page
-const FIRST_ORDER_DISCOUNT = 50;
-
 // Formats a rupee amount, only showing decimals when the amount actually has them,
 // so whole-number charges stay clean (₹0) while precise totals stay accurate (₹3,450.24)
 const formatCurrency = (amount: number): string => {
@@ -37,7 +34,6 @@ export default function CheckoutPage() {
     const [transportCharge, setTransportCharge] = useState(0);
     const [handlingCharge, setHandlingCharge] = useState(0);
     const [showPaymentPopup, setShowPaymentPopup] = useState(false);
-    const [isFirstOrder, setIsFirstOrder] = useState(false);
 
     // Data States
     const [cartItems, setCartItems] = useState<any[]>([]);
@@ -69,7 +65,6 @@ export default function CheckoutPage() {
         deliveryLabel: string;
         deliveryDateStr: string;
         isSameDay: boolean;
-        firstOrderDiscount: number;
     } | null>(null);
 
     useEffect(() => {
@@ -90,9 +85,6 @@ export default function CheckoutPage() {
     const payableNow = paymentType === "full" ? total : 0;
     const remainingBalance = paymentType === "cod" ? total : 0;
     const isAmountTooLow = total < 500;
-
-    // Discount only applies once there's actually something to order
-    const firstOrderDiscount = isFirstOrder && cartItems.length > 0 ? FIRST_ORDER_DISCOUNT : 0;
 
     useEffect(() => {
         loadData();
@@ -159,32 +151,12 @@ export default function CheckoutPage() {
         };
     };
 
-    // Looks for any previously placed order for this wholesaler. No rows = first order,
-    // which qualifies for the flat ₹50 first-order discount.
-    // NOTE: adjust the table/column names below ("orders" / "user_id") if yours differ.
-    const checkFirstOrder = async (userId: string) => {
-        try {
-            const { count, error } = await supabase
-                .from("orders")
-                .select("id", { count: "exact", head: true })
-                .eq("user_id", userId);
-
-            if (error) throw error;
-            setIsFirstOrder((count ?? 0) === 0);
-        } catch (err) {
-            console.log("First order check failed", err);
-            setIsFirstOrder(false);
-        }
-    };
-
     const loadData = async () => {
         try {
             const userStr = localStorage.getItem("wholesale_user");
             if (!userStr) return router.push("/");
 
             const user = JSON.parse(userStr);
-
-            checkFirstOrder(user.id);
 
             const { data: bankData } = await supabase
                 .from("bank_details")
@@ -261,8 +233,6 @@ export default function CheckoutPage() {
                 0
             );
 
-            // Discount is applied once we know whether this is the user's first order —
-            // see the effect below that recalculates `total` when `isFirstOrder` resolves.
             const grandTotal = calcSubtotal + transport + handling;
 
             setSubtotal(calcSubtotal);
@@ -282,13 +252,12 @@ export default function CheckoutPage() {
         }
     };
 
-    // Recompute the grand total whenever inputs that affect it change, so the
-    // first-order discount is reflected as soon as it's known.
+    // Recompute the grand total whenever inputs that affect it change
     useEffect(() => {
         if (cartItems.length === 0) return;
-        setTotal(Math.max(0, subtotal + transportCharge + handlingCharge - firstOrderDiscount));
+        setTotal(Math.max(0, subtotal + transportCharge + handlingCharge));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [subtotal, transportCharge, handlingCharge, firstOrderDiscount]);
+    }, [subtotal, transportCharge, handlingCharge]);
 
     const handlePaymentProofSubmit = async () => {
         if (paymentMethod === "cod") {
@@ -364,11 +333,6 @@ export default function CheckoutPage() {
 
                 amount_paid_now: parseFloat(payableNow.toFixed(2)),
                 remaining_balance: parseFloat(remainingBalance.toFixed(2)),
-
-                // First-order discount applied, kept on the record for reference.
-                // NOTE: add a `discount_amount` column to 'orders' if you want this persisted —
-                // remove this line if the column doesn't exist yet.
-                discount_amount: parseFloat(firstOrderDiscount.toFixed(2)),
 
                 payment_type: paymentType,
 
@@ -509,7 +473,6 @@ export default function CheckoutPage() {
                 deliveryLabel,
                 deliveryDateStr,
                 isSameDay,
-                firstOrderDiscount,
             });
             setShowSuccessModal(true);
 
@@ -610,16 +573,6 @@ export default function CheckoutPage() {
 
                 {/* LEFT SIDE: DETAILS */}
                 <div className="lg:col-span-8 space-y-8">
-
-                    {/* First order discount banner */}
-                    {firstOrderDiscount > 0 && (
-                        <div className="bg-green-50 border border-green-100 rounded-2xl p-4 flex items-center gap-3">
-                            <Sparkles className="text-green-600 shrink-0" size={18} />
-                            <p className="text-[11px] font-black text-green-700 uppercase tracking-wide">
-                                Welcome! ₹{FIRST_ORDER_DISCOUNT} discount applied on your first order.
-                            </p>
-                        </div>
-                    )}
 
                     {/* SHIPPING ADDRESS SECTION */}
                     <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm">
@@ -781,16 +734,6 @@ export default function CheckoutPage() {
                                   </div>
                                 </div>
 
-                                {/* First-order discount row */}
-                                {firstOrderDiscount > 0 && (
-                                    <div className="flex justify-between items-end">
-                                        <div className="text-xs font-bold text-emerald-400 uppercase flex items-center gap-1.5">
-                                            <Sparkles size={12} /> First Order Discount
-                                        </div>
-                                        <div className="text-sm font-black text-emerald-400">-₹{formatCurrency(firstOrderDiscount)}</div>
-                                    </div>
-                                )}
-
                                 <div className="h-px bg-slate-800 my-4" />
                                 <div className="flex justify-between items-end">
                                     <div className="text-[10px] font-black text-white uppercase tracking-widest">Grand Total</div>
@@ -864,11 +807,6 @@ export default function CheckoutPage() {
                                                 {totalSavings > 0 && (
                                                     <p className="text-[9px] font-black text-emerald-600 uppercase">
                                                         Saved {savingsPercent.toFixed(1)}% (₹{formatCurrency(totalSavings)}) on bulk pricing
-                                                    </p>
-                                                )}
-                                                {firstOrderDiscount > 0 && (
-                                                    <p className="text-[9px] font-black text-emerald-600 uppercase">
-                                                        + ₹{formatCurrency(firstOrderDiscount)} first order discount
                                                     </p>
                                                 )}
                                             </div>
@@ -1092,22 +1030,6 @@ export default function CheckoutPage() {
                                             </span>
                                         </p>
                                         <p className="text-[9px] font-bold text-slate-400">with bulk pricing on this order</p>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* First order discount card */}
-                            {successData.firstOrderDiscount > 0 && (
-                                <div className="bg-white border-2 border-emerald-100 rounded-[1.75rem] p-5 shadow-lg flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center shrink-0">
-                                        <Sparkles className="text-emerald-600" size={22} />
-                                    </div>
-                                    <div>
-                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">First Order Discount</p>
-                                        <p className="text-2xl font-black text-emerald-600 tracking-tighter">
-                                            ₹{formatCurrency(successData.firstOrderDiscount)}
-                                        </p>
-                                        <p className="text-[9px] font-bold text-slate-400">applied as a welcome bonus</p>
                                     </div>
                                 </div>
                             )}

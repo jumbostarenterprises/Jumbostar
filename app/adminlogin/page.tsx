@@ -14,7 +14,7 @@ export default function AdminLogin() {
   const [error, setError] = useState("")
 
   const ADMIN_EMAIL = "Jsadmin@gmail.com"
-  const ADMIN_PASSWORD = "JS@123"
+  const ADMIN_PASSWORD = "Jsadmin@321"
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault()
