@@ -144,7 +144,7 @@ export default function ProductGalleryPage() {
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
           <div>
             <h1 className="text-4xl font-black text-slate-900 tracking-tight uppercase">Inventory</h1>
-            <p className="text-slate-500 font-medium">Toggle Home Page visibility and manage stock</p>
+            <p className="text-slate-500 font-medium">Toggle Home Page visibility and manage stock.</p>
           </div>
 
           <button
