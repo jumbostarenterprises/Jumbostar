@@ -1,9 +1,10 @@
-// Small client component to handle the useEffect hook since RootLayout is a Server Component by default
-("use client");
+"use client";
+
 import { useEffect } from "react";
 import { initAppNotifications } from "@/utils/notifications";
 
-function NotificationRunner() {
+// Ensure you have "export default" here:
+export default function NotificationInitializer() {
   useEffect(() => {
     initAppNotifications();
   }, []);

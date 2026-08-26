@@ -25,7 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ClientProviders>
           {/* Add notification initializer here so it runs on app start */}
-          <NotificationRunner />
+          <NotificationInitializer />
           {children}
         </ClientProviders>
       </body>
