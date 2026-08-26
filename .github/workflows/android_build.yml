@@ -49,23 +49,31 @@ jobs:
       - name: Inject google-services.json
         run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
 
-      - name: Decode Production Keystore & Create keystore.properties Everywhere
+      - name: Decode Keystore & Configure Signing Directly in build.gradle
         run: |
-          # 1. Decode keystore into both folders to guarantee availability
-          echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > android/jumbostar-release.jks
+          # 1. Decode the release keystore directly into the android/app folder
           echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > android/app/jumbostar-release.jks
 
-          # 2. Create keystore.properties in the android/ folder
-          echo "storeFile=jumbostar-release.jks" > android/keystore.properties
-          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/keystore.properties
-          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/keystore.properties
-          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/keystore.properties
+          # 2. Append the release signing config directly to android/app/build.gradle 
+          # This completely bypasses any missing or misread keystore.properties files!
+          cat <<EOT >> android/app/build.gradle
 
-          # 3. Create keystore.properties in the android/app/ folder with relative path adjustment
-          echo "storeFile=jumbostar-release.jks" > android/app/keystore.properties
-          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/app/keystore.properties
-          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/app/keystore.properties
-          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/app/keystore.properties
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file('jumbostar-release.jks')
+                      storePassword '${{ secrets.ANDROID_KEYSTORE_PASSWORD }}'
+                      keyAlias '${{ secrets.ANDROID_KEY_ALIAS }}'
+                      keyPassword '${{ secrets.ANDROID_KEY_PASSWORD }}'
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                  }
+              }
+          }
+          EOT
 
       - name: Build Release AAB and APK
         run: |
