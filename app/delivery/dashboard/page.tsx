@@ -396,7 +396,7 @@ export default function DeliveryDashboard() {
                         onClick={downloadBankPDF}
                         className="mt-4 w-full bg-slate-900 text-white py-3 rounded-xl text-xs font-black uppercase"
                     >
-                        Download Bank Details PDF.
+                        Download Bank Details PDF
                     </button>
 
                 </div>
