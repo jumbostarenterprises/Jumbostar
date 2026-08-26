@@ -1,10 +1,13 @@
 apply plugin: 'com.android.application'
 
 def keystorePropertiesFile = rootProject.file("../keystore.properties")
+def localKeystoreFile = file("keystore.properties")
 def keystoreProperties = new Properties()
 
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+} else if (localKeystoreFile.exists()) {
+    keystoreProperties.load(new FileInputStream(localKeystoreFile))
 }
 
 android {
@@ -19,7 +22,6 @@ android {
         versionName "0.4"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
-             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
@@ -28,6 +30,11 @@ android {
         release {
             if (keystorePropertiesFile.exists()) {
                 storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            } else if (localKeystoreFile.exists()) {
+                storeFile file(keystoreProperties['storeFile'])
                 storePassword keystoreProperties['storePassword']
                 keyAlias keystoreProperties['keyAlias']
                 keyPassword keystoreProperties['keyPassword']
