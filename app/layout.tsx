@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import ClientProviders from "../Components/ClientProviders";
+import ClientProviders from "@/Components/CClientProviders";
+import NotificationInitializer from "@/Components/NotificationInitializer";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -23,9 +24,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ClientProviders>
+          {/* Add notification initializer here so it runs on app start */}
+          <NotificationRunner />
           {children}
         </ClientProviders>
       </body>
     </html>
   );
+}
+
+// Small client component to handle the useEffect hook since RootLayout is a Server Component by default
+("use client");
+import { useEffect } from "react";
+import { initAppNotifications } from "@/utils/notifications";
+
+function NotificationRunner() {
+  useEffect(() => {
+    initAppNotifications();
+  }, []);
+
+  return null;
 }
