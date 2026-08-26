@@ -1,7 +1,7 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.jumbostar.wholesale',
+  appId: 'com.jumbostar.app',
   appName: 'Jumbo Star',
   webDir: 'out',
   server: {

@@ -51,14 +51,14 @@ jobs:
 
       - name: Decode Production Keystore
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > jumbostar-release.jks
+          echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > android/jumbostar-release.jks
 
-      - name: Create keystore.properties
+      - name: Create keystore.properties (Inside Android Folder)
         run: |
-          echo "storeFile=../jumbostar-release.jks" >> keystore.properties
-          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> keystore.properties
-          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> keystore.properties
-          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> keystore.properties
+          echo "storeFile=jumbostar-release.jks" >> android/keystore.properties
+          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/keystore.properties
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/keystore.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/keystore.properties
 
       - name: Build Release AAB and APK
         run: |

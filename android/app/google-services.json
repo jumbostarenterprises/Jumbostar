@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "467297285592",
-    "project_id": "jumbostar-app",
-    "storage_bucket": "jumbostar-app.firebasestorage.app"
+    "project_number": "866882221422",
+    "project_id": "jumbostar-app-d7fa9",
+    "storage_bucket": "jumbostar-app-d7fa9.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:467297285592:android:51326c6739505fea486ead",
+        "mobilesdk_app_id": "1:866882221422:android:209d74ef4b6823cbdbfd7f",
         "android_client_info": {
           "package_name": "com.jumbostar.app"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBW5N47wGH4EGSFllwaVo_ooa9utu3oNDk"
+          "current_key": "AIzaSyAzIt14c6y6TAmo5HWoWypKUkrNLjHPkwM"
         }
       ],
       "services": {
