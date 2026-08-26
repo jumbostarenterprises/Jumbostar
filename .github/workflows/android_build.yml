@@ -50,23 +50,20 @@ jobs:
       - name: Inject google-services.json
         run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
 
-      - name: Decode Keystore & Populate keystore.properties in Android Root
+      - name: Decode Keystore & Populate keystore.properties correctly
         run: |
           # 1. Decode the release keystore into the root android/ directory
           echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > android/jumbostar-release.jks
 
-          # 2. Explicitly write keystore.properties with absolute paths/correct layout
-          cd android
-          echo "storeFile=jumbostar-release.jks" > keystore.properties
-          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> keystore.properties
-          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> keystore.properties
-          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> keystore.properties
-          
-          echo "=== DEBUG: Verifying keystore.properties contents ==="
-          cat keystore.properties
-          echo "=== DEBUG: Verifying jumbostar-release.jks exists ==="
-          ls -la jumbostar-release.jks
-          cd ..
+          # 2. Write keystore.properties in the root android/ directory
+          echo "storeFile=jumbostar-release.jks" > android/keystore.properties
+          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/keystore.properties
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/keystore.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/keystore.properties
+
+          # 3. Copy a duplicate directly into android/app/ just to be 100% safe against any path variation
+          cp android/keystore.properties android/app/keystore.properties
+          cp android/jumbostar-release.jks android/app/jumbostar-release.jks
 
       - name: Build Release AAB and APK
         run: |
