@@ -448,7 +448,7 @@ export default function DeliveryDashboard() {
                                     <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
                                         <div>
                                             <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1">
-                                                Delivery Destination
+                                                Delivery Destination.
                                             </p>
                                             <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight leading-none">
                                                 {order.customer_name || 'Retail Store'}
