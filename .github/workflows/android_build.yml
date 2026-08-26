@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   build:
@@ -49,31 +50,17 @@ jobs:
       - name: Inject google-services.json
         run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
 
-      - name: Decode Keystore & Configure Signing Directly in build.gradle
+      - name: Decode Keystore & Populate keystore.properties in Android Root
         run: |
-          # 1. Decode the release keystore directly into the android/app folder
-          echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > android/app/jumbostar-release.jks
+          # 1. Decode the release keystore into the root android/ directory
+          echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > android/jumbostar-release.jks
 
-          # 2. Append the release signing config directly to android/app/build.gradle 
-          # This completely bypasses any missing or misread keystore.properties files!
-          cat <<EOT >> android/app/build.gradle
-
-          android {
-              signingConfigs {
-                  release {
-                      storeFile file('jumbostar-release.jks')
-                      storePassword '${{ secrets.ANDROID_KEYSTORE_PASSWORD }}'
-                      keyAlias '${{ secrets.ANDROID_KEY_ALIAS }}'
-                      keyPassword '${{ secrets.ANDROID_KEY_PASSWORD }}'
-                  }
-              }
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.release
-                  }
-              }
-          }
-          EOT
+          # 2. Write keystore.properties directly in the root android/ directory 
+          # so rootProject.file("../keystore.properties") called from app/build.gradle finds it correctly
+          echo "storeFile=jumbostar-release.jks" > android/keystore.properties
+          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/keystore.properties
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/keystore.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/keystore.properties
 
       - name: Build Release AAB and APK
         run: |
