@@ -49,13 +49,13 @@ jobs:
       - name: Inject google-services.json
         run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
 
-      - name: Decode Production Keystore
+      - name: Decode Production Keystore & Create keystore.properties in Android Folder
         run: |
+          # 1. Decode keystore directly inside the android folder
           echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > android/jumbostar-release.jks
 
-      - name: Create keystore.properties (Inside Android Folder)
-        run: |
-          echo "storeFile=jumbostar-release.jks" >> android/keystore.properties
+          # 2. Create keystore.properties inside the android folder so Gradle finds it immediately
+          echo "storeFile=jumbostar-release.jks" > android/keystore.properties
           echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/keystore.properties
           echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/keystore.properties
           echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/keystore.properties
