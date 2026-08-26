@@ -49,16 +49,16 @@ jobs:
       - name: Inject google-services.json
         run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
 
-      - name: Decode Production Keystore & Create keystore.properties in Android Folder
+      - name: Decode Production Keystore & Create keystore.properties in android/app Folder
         run: |
-          # 1. Decode keystore directly inside the android folder
-          echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > android/jumbostar-release.jks
+          # 1. Decode keystore directly inside the android/app folder
+          echo "${{ secrets.ANDROID_KEYSTORE_CONTENT }}" | base64 --decode > android/app/jumbostar-release.jks
 
-          # 2. Create keystore.properties inside the android folder so Gradle finds it immediately
-          echo "storeFile=jumbostar-release.jks" > android/keystore.properties
-          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/keystore.properties
-          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/keystore.properties
-          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/keystore.properties
+          # 2. Create keystore.properties inside android/app so Gradle finds it via rootProject.file("../keystore.properties")
+          echo "storeFile=jumbostar-release.jks" > android/app/keystore.properties
+          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/app/keystore.properties
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/app/keystore.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/app/keystore.properties
 
       - name: Build Release AAB and APK
         run: |
