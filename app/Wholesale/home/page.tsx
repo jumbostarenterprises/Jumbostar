@@ -157,7 +157,7 @@ export default function HomePage() {
                     {/* Action Buttons - Forced onto the same line */}
                     <div className="flex flex-row items-center gap-2 md:gap-4 mt-6 md:mt-10 animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
                       <Link
-                        href="/productgallery"
+                        href="/Wholesale/productgallery"
                         className="flex-1 sm:flex-none group/btn bg-white hover:bg-red-600 text-slate-900 hover:text-white px-4 md:px-10 py-3 md:py-4 rounded-full font-bold text-[11px] md:text-sm flex items-center justify-center gap-2 md:gap-3 transition-all duration-300 shadow-lg whitespace-nowrap"
                       >
                         Explore Now
@@ -165,7 +165,7 @@ export default function HomePage() {
                       </Link>
 
                       <Link
-                        href="/categories"
+                        href="/Wholesale/categories"
                         className="flex-1 sm:flex-none bg-transparent border border-white/30 hover:bg-white/10 backdrop-blur-sm text-white px-4 md:px-10 py-3 md:py-4 rounded-full font-bold text-[11px] md:text-sm flex items-center justify-center transition-all whitespace-nowrap"
                       >
                         Catalog
