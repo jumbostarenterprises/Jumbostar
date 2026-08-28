@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 import {
     Search, Package, Building2, MapPin, Calendar,
     RefreshCcw, ChevronRight, Filter, History, ShoppingBag,
-    FileText, X, Phone, IndianRupee
+    FileText, X, Phone, IndianRupee, Coins
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 import { jsPDF } from "jspdf";
@@ -123,63 +123,92 @@ export default function AdminOrdersPage() {
         }
     };
 
-const updateStatus = async (order: any, updates: any) => {
-    try {
-        setUpdating(true);
-        const { data, error } = await supabase
-            .from("orders")
-            .update(updates)
-            .eq("id", order.id)
-            .select();
+    const updateStatus = async (order: any, updates: any) => {
+        try {
+            setUpdating(true);
+            const { data, error } = await supabase
+                .from("orders")
+                .update(updates)
+                .eq("id", order.id)
+                .select();
 
-        if (error) throw error;
+            if (error) throw error;
 
-        if (!data || data.length === 0) {
-            toast.error("Update failed: Record not found");
-            return;
-        }
-
-        setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...updates } : o));
-
-        if (selectedClient) {
-            setSelectedClient((prev: any) => ({
-                ...prev,
-                all_orders: prev.all_orders.map((o: any) =>
-                    o.id === order.id ? { ...o, ...updates } : o
-                )
-            }));
-        }
-
-        toast.success("Database Updated Successfully");
-
-        // ── Notify wholesaler by email ──
-        const wholesalerEmail = order.wholesale_users?.email;
-        if (wholesalerEmail) {
-            try {
-                await fetch('/api/notify-customer', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        toEmail: wholesalerEmail,
-                        customerName: order.wholesale_users?.company_name || order.wholesale_users?.owner_name,
-                        orderId: order.order_id_custom,
-                        orderStatus: updates.order_status ?? order.order_status,
-                        paymentStatus: updates.payment_status ?? order.payment_status,
-                        totalAmount: order.total_payable_amount,
-                        remainingBalance: order.remaining_balance,
-                    })
-                });
-            } catch (emailErr) {
-                console.error("Customer email notification failed:", emailErr);
+            if (!data || data.length === 0) {
+                toast.error("Update failed: Record not found");
+                return;
             }
-        }
 
-    } catch (err: any) {
-        toast.error(`Update Failed: ${err.message}`);
-    } finally {
-        setUpdating(false);
-    }
-};
+            // The delivery-coins trigger runs server-side and may also touch
+            // coins_earned on the order — pull the fresh row back in so local
+            // state (and the client's coin balance, if you refetch it) stays
+            // consistent with what's actually in the database.
+            const updatedRow = data[0];
+
+            setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...updatedRow } : o));
+
+            if (selectedClient) {
+                setSelectedClient((prev: any) => ({
+                    ...prev,
+                    all_orders: prev.all_orders.map((o: any) =>
+                        o.id === order.id ? { ...o, ...updatedRow } : o
+                    )
+                }));
+
+                // If this update just delivered (or un-delivered) the order,
+                // the wholesaler's coin balance changed too — refresh it so
+                // the admin panel reflects the new total immediately.
+                if (updates.order_status) {
+                    const { data: freshUser } = await supabase
+                        .from("wholesale_users")
+                        .select("coins")
+                        .eq("id", order.user_id)
+                        .single();
+
+                    if (freshUser) {
+                        setSelectedClient((prev: any) => ({
+                            ...prev,
+                            client_info: { ...prev.client_info, coins: freshUser.coins }
+                        }));
+                        setGroupedClients(prev => prev.map((c: any) =>
+                            c.business_id === selectedClient.business_id
+                                ? { ...c, client_info: { ...c.client_info, coins: freshUser.coins } }
+                                : c
+                        ));
+                    }
+                }
+            }
+
+            toast.success("Database Updated Successfully");
+
+            // ── Notify wholesaler by email ──
+            const wholesalerEmail = order.wholesale_users?.email;
+            if (wholesalerEmail) {
+                try {
+                    await fetch('/api/notify-customer', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            toEmail: wholesalerEmail,
+                            customerName: order.wholesale_users?.company_name || order.wholesale_users?.owner_name,
+                            orderId: order.order_id_custom,
+                            orderStatus: updates.order_status ?? order.order_status,
+                            paymentStatus: updates.payment_status ?? order.payment_status,
+                            totalAmount: order.total_payable_amount,
+                            remainingBalance: order.remaining_balance,
+                        })
+                    });
+                } catch (emailErr) {
+                    console.error("Customer email notification failed:", emailErr);
+                }
+            }
+
+        } catch (err: any) {
+            toast.error(`Update Failed: ${err.message}`);
+        } finally {
+            setUpdating(false);
+        }
+    };
 
     const generateCombinedPDF = () => {
         if (!selectedClient) return;
@@ -245,14 +274,14 @@ const updateStatus = async (order: any, updates: any) => {
 
     const filteredClients = groupedClients.filter(client => {
         const matchesSearch = client.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                              client.business_id.toLowerCase().includes(searchTerm.toLowerCase());
-        
+            client.business_id.toLowerCase().includes(searchTerm.toLowerCase());
+
         if (!matchesSearch) return false;
 
-        const activeCount = client.all_orders.filter((o: any) => 
+        const activeCount = client.all_orders.filter((o: any) =>
             o.order_status !== "delivered" && o.order_status !== "cancelled"
         ).length;
-        
+
         if (!showAllWholesalers && activeCount === 0) {
             return false;
         }
@@ -260,175 +289,186 @@ const updateStatus = async (order: any, updates: any) => {
         return true;
     });
 
-    return (
-        <div className=" bg-[#FDF8F8] p-6 md:p-12">
+return (
+        <div className="bg-[#FDF8F8] p-6 md:p-10 min-h-screen">
             <Toaster position="top-right" />
+<div className="max-w-7xl mx-auto mb-10">
+                <div className="relative overflow-hidden bg-white/80 backdrop-blur-xl border border-red-100/80 rounded-[2.5rem] p-6 md:p-8 shadow-2xl shadow-red-900/5">
+                    {/* Decorative accent glow */}
+                    <div className="absolute -top-24 -right-24 w-96 h-96 bg-red-500/10 rounded-full blur-3xl pointer-events-none" />
 
-            {/* Header Section */}
-            <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center mb-12 gap-6">
-                <div>
-                    <h1 className="text-5xl font-black text-slate-900 tracking-tighter uppercase">Order Registry</h1>
-                    <p className="text-red-500 font-bold tracking-widest uppercase text-xs mt-1">Management Console </p>
-                </div>
+                    <div className="relative flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                        {/* Title & Badge Area */}
+                        <div className="space-y-2">
+                            <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-50 border border-red-100 rounded-full">
+                                <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
+                                <span className="text-[10px] font-black uppercase tracking-widest text-red-600">Management Console</span>
+                            </div>
+                            <h1 className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tighter uppercase">
+                                Order Registry
+                            </h1>
+                        </div>
 
-                <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-                    <div className="flex items-center gap-2 w-full md:w-auto">
-                        <button
-                            onClick={() => setShowAllWholesalers(true)}
-                            className="w-full md:w-auto px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all bg-red-600 text-white shadow-xl hover:bg-red-700"
-                        >
-                            View All Wholesalers
-                        </button>
-                        
-                        {showAllWholesalers && (
-                            <button
-                                onClick={() => setShowAllWholesalers(false)}
-                                className="p-4 bg-white text-slate-400 rounded-2xl shadow-sm border border-slate-200 hover:bg-slate-50 hover:text-red-600 transition-all flex items-center justify-center"
-                                title="Close View All"
-                            >
-                                <X size={18} />
-                            </button>
-                        )}
-                    </div>
-                    
-                    <div className="relative w-full md:w-96">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                        <input
-                            type="text"
-                            placeholder="SEARCH BUSINESS ENTITY..."
-                            className="w-full pl-12 pr-4 py-4 text-black bg-white border-0 shadow-xl shadow-red-500/5 rounded-2xl focus:ring-2 ring-red-500 transition-all outline-none text-xs font-black uppercase"
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
+                        {/* Controls Area (Buttons & Search) */}
+                        <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
+                            <div className="flex items-center gap-2 w-full sm:w-auto">
+                                <button
+                                    onClick={() => setShowAllWholesalers(!showAllWholesalers)}
+                                    className={`w-full sm:w-auto px-6 py-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-lg flex items-center justify-center gap-2 ${
+                                        showAllWholesalers 
+                                            ? 'bg-slate-900 text-white shadow-slate-900/10 hover:bg-slate-800' 
+                                            : 'bg-red-600 text-white shadow-red-600/20 hover:bg-red-700'
+                                    }`}
+                                >
+                                    <span>{showAllWholesalers ? "Showing All" : "View All Wholesalers"}</span>
+                                </button>
+
+                                {showAllWholesalers && (
+                                    <button
+                                        onClick={() => setShowAllWholesalers(false)}
+                                        className="p-4 bg-red-50 text-red-600 rounded-2xl border border-red-100 hover:bg-red-100 transition-all flex items-center justify-center shrink-0"
+                                        title="Close View All"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="relative w-full sm:w-80">
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                                <input
+                                    type="text"
+                                    placeholder="SEARCH BUSINESS ENTITY..."
+                                    className="w-full pl-12 pr-4 py-4 text-slate-900 bg-slate-50/80 hover:bg-slate-50 focus:bg-white border border-slate-200/60 shadow-inner rounded-2xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none text-xs font-black uppercase placeholder:text-slate-400"
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
             {/* Business Table */}
-            <div className="max-w-[95%] mx-auto bg-white rounded-[2.5rem] shadow-2xl shadow-red-900/5 border border-red-50 overflow-hidden overflow-x-auto">
-                {loading ? (
-                    <div className="p-20 text-center font-black text-slate-400 uppercase tracking-widest animate-pulse">Loading Registry...</div>
-                ) : (
-                    <table className="w-full text-left min-w-max">
-                        <thead className="bg-red-50/50 border-b border-red-100">
-                            <tr>
-                                <th className="px-6 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Business Entity</th>
-                                <th className="px-4 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Orders</th>
-                                
-                                {!showAllWholesalers && (
-                                    <>
-                                        <th className="px-4 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Product</th>
-                                        <th className="px-4 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Qty</th>
-                                        <th className="px-4 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Pricing</th>
-                                    </>
-                                )}
-                                
-                                <th className="px-4 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Returns</th>
-                                <th className="px-6 py-6 text-[10px] font-black uppercase text-red-500 tracking-widest text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-red-50">
-                            {filteredClients.map(client => {
-                                const activeCount = client.all_orders.filter((o: any) => o.order_status !== "delivered" && o.order_status !== "cancelled").length;
-                                const displayOrdersCount = showAllWholesalers ? client.all_orders.length : activeCount;
-                                
-                                const displayOrdersList = showAllWholesalers 
-                                    ? client.all_orders 
-                                    : client.all_orders.filter((o: any) => o.order_status !== "delivered" && o.order_status !== "cancelled");
-                                
-                                const allItems = displayOrdersList.flatMap((o: any) => o.items || []);
-
-                                return (
-                                    <tr key={client.business_id} className="hover:bg-red-50/30 transition-all cursor-pointer group" onClick={() => setSelectedClient(client)}>
-                                        <td className="px-6 py-6 align-top">
-                                            <div className="text-lg font-black text-slate-900 tracking-tighter uppercase">{client.company_name}</div>
-                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{client.business_id}</div>
-                                        </td>
-                                        
-                                        <td className="px-4 py-6 align-top">
-                                            <span className={`px-3 py-1 rounded-full text-[10px] font-black inline-block mt-1 ${showAllWholesalers ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-600'}`}>
-                                                {displayOrdersCount} {showAllWholesalers ? "TOTAL" : "ACTIVE"}
-                                            </span>
-                                        </td>
+            <div className="w-full max-w-7xl mx-auto">
+                <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl shadow-red-900/5 border border-red-50 overflow-hidden">
+                    {loading ? (
+                        <div className="p-12 sm:p-20 text-center font-black text-slate-400 uppercase tracking-widest animate-pulse text-xs sm:text-sm">
+                            Loading Registry...
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto w-full">
+                            <table className="w-full text-left min-w-[700px]">
+                                <thead className="bg-red-50/50 border-b border-red-100">
+                                    <tr>
+                                        <th className="px-4 sm:px-6 py-4 sm:py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Business Entity</th>
+                                        <th className="px-3 sm:px-4 py-4 sm:py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Orders</th>
 
                                         {!showAllWholesalers && (
                                             <>
-                                                <td className="px-4 py-6 align-top">
-                                                    <div className="space-y-4">
-                                                        {allItems.length > 0 ? allItems.map((item: any, idx: number) => (
-                                                            <div key={`p-${idx}`} className="flex flex-col min-h-[7rem]" title={item.product_name}>
-                                                                {item.image_url || item.image ? (
-                                                                    <img 
-                                                                        src={item.image_url || item.image} 
-                                                                        alt={item.product_name} 
-                                                                        className="w-16 h-16 rounded-xl object-cover border border-slate-200 shadow-sm"
-                                                                    />
-                                                                ) : (
-                                                                    <div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center">
-                                                                        <Package size={24} className="text-slate-400" />
-                                                                    </div>
-                                                                )}
-                                                                <span className="text-sm font-black text-slate-800 mt-2 break-words w-40 leading-tight">
-                                                                    {item.product_name}
-                                                                </span>
-                                                            </div>
-                                                        )) : <div className="h-28 flex items-center"><span className="text-xs text-slate-400">-</span></div>}
-                                                    </div>
-                                                </td>
-
-                                                <td className="px-4 py-6 align-top">
-                                                    <div className="space-y-4">
-                                                        {allItems.length > 0 ? allItems.map((item: any, idx: number) => (
-                                                            <div key={`q-${idx}`} className="text-sm font-bold text-slate-600 h-28 flex items-center">
-                                                                {item.quantity} {item.unit || ''}
-                                                            </div>
-                                                        )) : <div className="h-28 flex items-center"><span className="text-xs text-slate-400">-</span></div>}
-                                                    </div>
-                                                </td>
-
-                                                <td className="px-4 py-6 align-top">
-                                                    <div className="space-y-4">
-                                                        {allItems.length > 0 ? allItems.map((item: any, idx: number) => (
-                                                            <div key={`pr-${idx}`} className="h-28 flex flex-col justify-center">
-                                                                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                                                                    Price: ₹{Number(item.price_at_purchase).toLocaleString()}
-                                                                </span>
-                                                                <span className="text-sm font-black text-slate-900 mt-1">
-                                                                    Sub: ₹{(Number(item.quantity) * Number(item.price_at_purchase)).toLocaleString()}
-                                                                </span>
-                                                            </div>
-                                                        )) : <div className="h-28 flex items-center"><span className="text-xs text-slate-400">-</span></div>}
-                                                    </div>
-                                                </td>
+                                                <th className="px-3 sm:px-4 py-4 sm:py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Product</th>
+                                                <th className="px-3 sm:px-4 py-4 sm:py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Qty</th>
+                                                <th className="px-3 sm:px-4 py-4 sm:py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Pricing</th>
                                             </>
                                         )}
 
-                                        <td className="px-4 py-6 align-top">
-                                            <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-[10px] font-black inline-block mt-1">
-                                                {client.return_count || 0} ITEMS
-                                            </span>
-                                        </td>
-
-                                        <td className="px-6 py-6 text-right align-top">
-                                            <button className="p-3 bg-slate-900 text-white rounded-xl hover:bg-red-600 transition-all group-hover:scale-110 mt-1">
-                                                <ChevronRight size={18} />
-                                            </button>
-                                        </td>
+                                        <th className="px-3 sm:px-4 py-4 sm:py-6 text-[10px] font-black uppercase text-red-500 tracking-widest">Returns</th>
+                                        <th className="px-4 sm:px-6 py-4 sm:py-6 text-[10px] font-black uppercase text-red-500 tracking-widest text-right">Actions</th>
                                     </tr>
-                                );
-                            })}
-                            {filteredClients.length === 0 && (
-                                <tr>
-                                    <td colSpan={showAllWholesalers ? 4 : 7} className="p-12 text-center font-bold text-slate-400 uppercase text-xs">
-                                        No Records Found
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                )}
+                                </thead>
+                                <tbody className="divide-y divide-red-50">
+                                    {filteredClients.map(client => {
+                                        const activeCount = client.all_orders.filter((o: any) => o.order_status !== "delivered" && o.order_status !== "cancelled").length;
+                                        const displayOrdersCount = showAllWholesalers ? client.all_orders.length : activeCount;
+
+                                        const displayOrdersList = showAllWholesalers
+                                            ? client.all_orders
+                                            : client.all_orders.filter((o: any) => o.order_status !== "delivered" && o.order_status !== "cancelled");
+
+                                        const allItems = displayOrdersList.flatMap((o: any) => o.items || []);
+
+                                        return (
+                                            <tr key={client.business_id} className="hover:bg-red-50/30 transition-all cursor-pointer group" onClick={() => setSelectedClient(client)}>
+                                                <td className="px-4 sm:px-6 py-4 sm:py-6 align-top">
+                                                    <div className="text-base sm:text-lg font-black text-slate-900 tracking-tighter uppercase">{client.company_name}</div>
+                                                    <div className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">{client.business_id}</div>
+                                                </td>
+
+                                                <td className="px-3 sm:px-4 py-4 sm:py-6 align-top">
+                                                    <span className={`px-2.5 sm:px-3 py-1 rounded-full text-[9px] sm:text-[10px] font-black inline-block mt-1 ${showAllWholesalers ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-600'}`}>
+                                                        {displayOrdersCount} {showAllWholesalers ? "TOTAL" : "ACTIVE"}
+                                                    </span>
+                                                </td>
+
+                                                {!showAllWholesalers && (
+                                                    <>
+                                                        <td className="px-3 sm:px-4 py-4 sm:py-6 align-top">
+                                                            <div className="space-y-4">
+                                                                {allItems.length > 0 ? allItems.map((item: any, idx: number) => (
+                                                                    <div key={`p-${idx}`} className="flex flex-col min-h-[5rem] sm:min-h-[7rem]" title={item.product_name}>
+                                                                        <span className="text-xs sm:text-sm font-black text-slate-800 mt-2 break-words max-w-[150px] sm:w-40 leading-tight">
+                                                                            {item.product_name}
+                                                                        </span>
+                                                                    </div>
+                                                                )) : <div className="h-20 sm:h-28 flex items-center"><span className="text-xs text-slate-400">-</span></div>}
+                                                            </div>
+                                                        </td>
+
+                                                        <td className="px-3 sm:px-4 py-4 sm:py-6 align-top">
+                                                            <div className="space-y-4">
+                                                                {allItems.length > 0 ? allItems.map((item: any, idx: number) => (
+                                                                    <div key={`q-${idx}`} className="text-xs sm:text-sm font-bold text-slate-600 h-20 sm:h-28 flex items-center">
+                                                                        {item.quantity} {item.unit || ''}
+                                                                    </div>
+                                                                )) : <div className="h-20 sm:h-28 flex items-center"><span className="text-xs text-slate-400">-</span></div>}
+                                                            </div>
+                                                        </td>
+
+                                                        <td className="px-3 sm:px-4 py-4 sm:py-6 align-top">
+                                                            <div className="space-y-4">
+                                                                {allItems.length > 0 ? allItems.map((item: any, idx: number) => (
+                                                                    <div key={`pr-${idx}`} className="h-20 sm:h-28 flex flex-col justify-center">
+                                                                        <span className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase tracking-widest">
+                                                                            Price: ₹{Number(item.price_at_purchase).toLocaleString()}
+                                                                        </span>
+                                                                        <span className="text-xs sm:text-sm font-black text-slate-900 mt-1">
+                                                                            Sub: ₹{(Number(item.quantity) * Number(item.price_at_purchase)).toLocaleString()}
+                                                                        </span>
+                                                                    </div>
+                                                                )) : <div className="h-20 sm:h-28 flex items-center"><span className="text-xs text-slate-400">-</span></div>}
+                                                            </div>
+                                                        </td>
+                                                    </>
+                                                )}
+
+                                                <td className="px-3 sm:px-4 py-4 sm:py-6 align-top">
+                                                    <span className="px-2.5 sm:px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-[9px] sm:text-[10px] font-black inline-block mt-1">
+                                                        {client.return_count || 0} ITEMS
+                                                    </span>
+                                                </td>
+
+                                                <td className="px-4 sm:px-6 py-4 sm:py-6 text-right align-top">
+                                                    <button className="p-2.5 sm:p-3 bg-slate-900 text-white rounded-xl hover:bg-red-600 transition-all group-hover:scale-110 mt-1">
+                                                        <ChevronRight size={16} className="sm:w-[18px] sm:h-[18px]" />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                    {filteredClients.length === 0 && (
+                                        <tr>
+                                            <td colSpan={showAllWholesalers ? 4 : 7} className="p-10 sm:p-12 text-center font-bold text-slate-400 uppercase text-xs">
+                                                No Records Found
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
             </div>
 
-            {/* Slide-over Detail View */}
+      {/* Slide-over Detail View */}
             {selectedClient && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex justify-end">
                     <div className="w-full max-w-9xl bg-[#FDF8F8] h-full shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-500">
@@ -443,18 +483,21 @@ const updateStatus = async (order: any, updates: any) => {
                             <div className="flex flex-col md:flex-row justify-between items-end mb-12 border-b-4 border-red-600 pb-8 gap-6">
                                 <div>
                                     <h2 className="text-6xl font-black text-slate-900 tracking-tighter uppercase leading-none">{selectedClient.company_name}</h2>
-                                    
+
                                     <div className="flex flex-wrap gap-4 mt-4 items-center">
                                         <span className="flex items-center gap-1 text-xs font-black text-red-500 uppercase"><Building2 size={14} /> {selectedClient.business_id}</span>
                                         <span className="flex items-center gap-1 text-xs font-black text-slate-500 uppercase"><Phone size={14} /> {selectedClient.client_info?.phone}</span>
-                                        
+
                                         <div className="hidden sm:block w-px h-4 bg-slate-300"></div>
-                                        
+
                                         <span className="flex items-center gap-1 text-xs font-black text-emerald-600 uppercase tracking-widest">
                                             <IndianRupee size={12} /> Revenue: ₹{selectedClient.total_spent?.toLocaleString()}
                                         </span>
                                         <span className="flex items-center gap-1 text-xs font-black text-red-600 uppercase tracking-widest">
                                             <IndianRupee size={12} /> Balance: ₹{selectedClient.all_orders.reduce((acc: number, o: any) => acc + (Number(o.remaining_balance) || 0), 0).toLocaleString()}
+                                        </span>
+                                        <span className="flex items-center gap-1 text-xs font-black text-amber-600 uppercase tracking-widest">
+                                            <Coins size={12} /> Coins: {selectedClient.client_info?.coins ?? 0}
                                         </span>
                                     </div>
                                 </div>
@@ -637,7 +680,7 @@ function OrderCard({ order, updateStatus, getStatusStyle, updating }: any) {
     return (
         <div className="bg-white border-2 border-red-50 rounded-[2rem] p-8 shadow-sm hover:shadow-xl transition-all">
             <div className="flex flex-col lg:flex-row justify-between gap-8">
-               <div className="flex flex-col lg:flex-row gap-8 items-start w-full bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <div className="flex flex-col lg:flex-row gap-8 items-start w-full bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
                     {/* Left Side: Order Details & Pricing */}
                     <div className="flex-1 w-full">
                         {/* Header Block */}
@@ -654,7 +697,12 @@ function OrderCard({ order, updateStatus, getStatusStyle, updating }: any) {
                                 </span>
                             </div>
 
-                            <div>
+                            <div className="flex items-center gap-2">
+                                {order.order_status === "delivered" && order.coins_earned > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-black uppercase">
+                                        <Coins size={12} /> +{order.coins_earned} Coins Earned
+                                    </span>
+                                )}
                                 <span className="inline-block px-4 py-1.5 bg-slate-100 text-slate-700 rounded-full text-xs font-bold tracking-wide">
                                     {new Date(order.created_at).toDateString()}
                                 </span>
@@ -728,13 +776,13 @@ function OrderCard({ order, updateStatus, getStatusStyle, updating }: any) {
                                     <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">
                                         Payment Summary
                                     </p>
-                                    
+
                                     <div className="flex flex-col items-end text-right">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Total Payable</p>
                                         <div className="text-3xl font-black text-slate-900 tracking-tight mt-0.5">
                                             ₹{Number(order.total_payable_amount).toLocaleString()}
                                         </div>
-                                        
+
                                         <div className="mt-2 text-[11px] font-bold text-emerald-600 uppercase flex items-center gap-2 bg-emerald-50 px-3 py-1 rounded-md border border-emerald-100">
                                             <span>Paid: ₹{Number(order.amount_paid_now).toLocaleString()}</span>
                                             {order.payments?.some((p: any) => p.payment_status === "pending") && (
@@ -797,12 +845,12 @@ function OrderCard({ order, updateStatus, getStatusStyle, updating }: any) {
 
                         {/* Order Status Select */}
                         <div className="relative">
-                       <select
-    className={`w-full p-3.5 rounded-xl border-2 text-xs font-bold uppercase cursor-pointer outline-none transition-all shadow-sm ${getStatusStyle(order.order_status)}`}
-    value={order.order_status}
-    onChange={(e) => updateStatus(order, { order_status: e.target.value })}
-    disabled={updating || order.order_status === "delivered"}
->
+                            <select
+                                className={`w-full p-3.5 rounded-xl border-2 text-xs font-bold uppercase cursor-pointer outline-none transition-all shadow-sm ${getStatusStyle(order.order_status)}`}
+                                value={order.order_status}
+                                onChange={(e) => updateStatus(order, { order_status: e.target.value })}
+                                disabled={updating || order.order_status === "delivered"}
+                            >
                                 <option value="processing">Confirmed</option>
                                 <option value="shipped">Shipped</option>
                                 <option value="delivered">Delivered</option>
@@ -812,23 +860,29 @@ function OrderCard({ order, updateStatus, getStatusStyle, updating }: any) {
 
                         {/* Payment Status Select */}
                         <div className="relative">
-                      <select
-    className={`w-full p-3.5 rounded-xl border-2 text-xs font-bold uppercase cursor-pointer outline-none transition-all shadow-sm ${getStatusStyle(order.payment_status)}`}
-    value={order.payment_status}
-    onChange={(e) => updateStatus(order, { payment_status: e.target.value })}
-    disabled={updating || order.payment_status === "paid"}
->
+                            <select
+                                className={`w-full p-3.5 rounded-xl border-2 text-xs font-bold uppercase cursor-pointer outline-none transition-all shadow-sm ${getStatusStyle(order.payment_status)}`}
+                                value={order.payment_status}
+                                onChange={(e) => updateStatus(order, { payment_status: e.target.value })}
+                                disabled={updating || order.payment_status === "paid"}
+                            >
                                 <option value="pending">Pending Payment</option>
                                 <option value="paid">Mark as Fully Paid</option>
                             </select>
                         </div>
+
+                        {order.order_status === "delivered" && (
+                            <p className="text-[9px] font-bold text-amber-600 uppercase text-center bg-amber-50 border border-amber-100 rounded-lg py-2 px-2">
+                                Coins already credited to wholesaler
+                            </p>
+                        )}
 
                         {/* Download Invoice Button */}
                         <button
                             onClick={() => generateInvoicePDF(order)}
                             className="mt-2 w-full flex items-center justify-center gap-2 py-3.5 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase hover:bg-slate-800 active:scale-[0.98] transition-all shadow-md shadow-slate-900/10"
                         >
-                            <FileText size={14} /> 
+                            <FileText size={14} />
                             <span>Download Invoice</span>
                         </button>
                     </div>

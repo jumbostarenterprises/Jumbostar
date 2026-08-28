@@ -70,12 +70,17 @@ export default function ProductPage() {
                     if (cart) setIsInCart(true);
                 }
 
-                const { data: related } = await supabase
+                // ALL PRODUCTS (except the current one), newest first — no category
+                // filter and no limit, so the whole catalog shows in the Vault strip.
+                const { data: related, error: relatedError } = await supabase
                     .from("products")
                     .select(`*, product_images (*), product_variants (*)`)
-                    .or(`subcategory_id.eq.${mainProduct.subcategory_id},inner_category_id.eq.${mainProduct.inner_category_id}`)
                     .neq("id", id)
-                    .limit(10);
+                    .order("created_at", { ascending: false });
+
+                if (relatedError) {
+                    console.error("Related products fetch error:", relatedError.message);
+                }
                 setRelatedProducts(related || []);
             }
             setLoading(false);
@@ -225,8 +230,17 @@ export default function ProductPage() {
         <div className="min-h-screen bg-[#F8FAFC]">
             <Toaster position="top-center" reverseOrder={false} />
             <style jsx global>{`
-                @keyframes scroll { 0% { transform: translateX(0); } 100% { transform: translateX(calc(-250px * 5)); } }
-                .auto-scroll-container { display: flex; width: calc(250px * 20); animation: scroll 40s linear infinite; }
+                @keyframes scroll {
+                    0% { transform: translateX(0); }
+                    100% { transform: translateX(calc(-274px * var(--item-count, 1))); }
+                }
+                .auto-scroll-container {
+                    display: flex;
+                    width: max-content;
+                    animation-name: scroll;
+                    animation-timing-function: linear;
+                    animation-iteration-count: infinite;
+                }
                 .auto-scroll-container:hover { animation-play-state: paused; }
                 .scrollbar-hide::-webkit-scrollbar { display: none; }
                 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
@@ -276,22 +290,33 @@ export default function ProductPage() {
                         </div>
 
                         <div className="bg-white rounded-[1.5rem] p-6 md:p-8 border border-slate-100 shadow-sm space-y-6">
-                            <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
-                                <div>
-                                    <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Base Wholesale Price</p>
-                                    <div className="flex items-baseline gap-3">
-                                        <span className="text-4xl md:text-5xl font-black text-slate-900 tracking-tighter">₹{wholesaleBase}</span>
-                                        <span className="text-base md:text-lg text-slate-300 line-through font-bold">₹{currentVariant.mrp}</span>
-                                    </div>
+                            {/* STOCK STATUS — where the big price block used to be */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-green-500 font-bold text-xs">
+                                    <CheckCircle2 size={14} /> In Stock
                                 </div>
-                                <div className="text-right">
-                                    <div className="flex items-center gap-2 text-green-500 font-bold text-xs"><CheckCircle2 size={14} /> In Stock</div>
-                                    <p className="text-[10px] text-slate-400 font-medium">{currentVariant.stock} units ready</p>
-                                </div>
+                                <p className="text-[10px] text-slate-400 font-medium">{currentVariant.stock} units ready</p>
                             </div>
 
+                            {/* CART / BUY NOW — now in place of the old price block */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button onClick={() => handleActionClick("cart")} className="h-12 rounded-xl text-[9px] font-black uppercase tracking-[0.1em] border-2 border-slate-200 text-slate-600 flex items-center justify-center gap-2 hover:border-slate-900 hover:text-slate-900 transition-all">
+                                    <ShoppingCart size={16} /> {isInCart ? "In Bulk Cart" : "Add To Cart"}
+                                </button>
+                                <button onClick={() => handleActionClick("buy")} className="h-12 rounded-xl text-[9px] font-black uppercase tracking-[0.1em] bg-red-600 text-white flex items-center justify-center gap-2 shadow-lg shadow-red-200 hover:bg-slate-900 transition-all">
+                                    <Zap size={16} fill="white" /> Buy Now
+                                </button>
+                            </div>
+
+                            {/* SELECT VARIANT + PRICE — price now sits next to the variant selector */}
                             <div className="space-y-3 border-t border-slate-50 pt-6">
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Variant</p>
+                                <div className="flex items-center justify-between gap-4">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Variant</p>
+                                    <div className="flex items-baseline gap-2">
+                                        <span className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter">₹{wholesaleBase}</span>
+                                        <span className="text-[10px] md:text-xs text-slate-300 line-through font-bold">₹{currentVariant.mrp}</span>
+                                    </div>
+                                </div>
                                 <div className="flex flex-wrap gap-2">
                                     {product.product_variants.map((v: any, i: number) => (
                                         <button
@@ -303,15 +328,6 @@ export default function ProductPage() {
                                         </button>
                                     ))}
                                 </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                                <button onClick={() => handleActionClick("cart")} className="h-12 rounded-xl text-[9px] font-black uppercase tracking-[0.1em] border-2 border-slate-200 text-slate-600 flex items-center justify-center gap-2">
-                                    <ShoppingCart size={16} /> {isInCart ? "In Bulk Cart" : "Add To Cart"}
-                                </button>
-                                <button onClick={() => handleActionClick("buy")} className="h-12 rounded-xl text-[9px] font-black uppercase tracking-[0.1em] bg-red-600 text-white flex items-center justify-center gap-2 shadow-lg shadow-red-200">
-                                    <Zap size={16} fill="white" /> Buy Now
-                                </button>
                             </div>
                         </div>
 
@@ -340,18 +356,26 @@ export default function ProductPage() {
                     </div>
                 </div>
 
-                <section className="py-12 border-t border-slate-100 overflow-hidden">
-                    <h2 className="text-xl font-black text-slate-900 tracking-tight mb-8 px-4 uppercase">Recommended from Vault</h2>
-                    <div className="relative w-full overflow-hidden">
-                        <div className="auto-scroll-container flex gap-6 scrollbar-hide">
-                            {[...relatedProducts, ...relatedProducts].map((p, idx) => (
-                                <div key={`${p.id}-${idx}`} className="w-[250px] flex-shrink-0"><ProductCard product={p} /></div>
-                            ))}
+                {relatedProducts.length > 0 && (
+                    <section className="py-12 border-t border-slate-100 overflow-hidden">
+                        <h2 className="text-xl font-black text-slate-900 tracking-tight mb-8 px-4 uppercase">Recommended from Vault</h2>
+                        <div className="relative w-full overflow-hidden">
+                            <div
+                                className="auto-scroll-container flex gap-6 scrollbar-hide"
+                                style={{
+                                    ["--item-count" as any]: relatedProducts.length,
+                                    animationDuration: `${relatedProducts.length * 5}s`,
+                                }}
+                            >
+                                {[...relatedProducts, ...relatedProducts].map((p, idx) => (
+                                    <div key={`${p.id}-${idx}`} className="w-[250px] flex-shrink-0"><ProductCard product={p} /></div>
+                                ))}
+                            </div>
+                            <div className="absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-[#F8FAFC] to-transparent z-10 pointer-events-none" />
+                            <div className="absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-[#F8FAFC] to-transparent z-10 pointer-events-none" />
                         </div>
-                        <div className="absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-[#F8FAFC] to-transparent z-10 pointer-events-none" />
-                        <div className="absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-[#F8FAFC] to-transparent z-10 pointer-events-none" />
-                    </div>
-                </section>
+                    </section>
+                )}
             </main>
 
             {/* MOQ MODAL */}

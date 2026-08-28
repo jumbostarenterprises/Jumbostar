@@ -18,7 +18,8 @@ function GalleryContent() {
         category: searchParams.get("category") || null,
         subcategory: searchParams.get("subcategory") || null,
         innerCategory: searchParams.get("innerCategory") || null,
-        sort: searchParams.get("sort") || "relevant"
+        sort: searchParams.get("sort") || "relevant",
+        bestSelling: searchParams.get("bestSelling") === "true"
     });
 
     // 1. Sync URL params
@@ -27,7 +28,8 @@ function GalleryContent() {
             category: searchParams.get("category"),
             subcategory: searchParams.get("subcategory"),
             innerCategory: searchParams.get("innerCategory"),
-            sort: searchParams.get("sort") || "relevant"
+            sort: searchParams.get("sort") || "relevant",
+            bestSelling: searchParams.get("bestSelling") === "true"
         });
     }, [searchParams]);
 
@@ -43,73 +45,85 @@ function GalleryContent() {
     }, []);
 
     // 3. Fetch Products (FIXED LOGIC)
-useEffect(() => {
-    async function fetchFilteredProducts() {
-        setLoading(true);
+    useEffect(() => {
+        async function fetchFilteredProducts() {
+            setLoading(true);
 
-        // 1. Fetch products with their variants and images
-        let query = supabase
-            .from("products")
-            .select("*, product_images(image_url), product_variants(*)");
+            // 1. Fetch products with their variants and images
+            let query = supabase
+                .from("products")
+                .select("*, product_images(image_url), product_variants(*)");
 
-        // Category Filtering
-        if (filters.innerCategory) {
-            query = query.eq("inner_category_id", filters.innerCategory);
-        } else if (filters.subcategory) {
-            query = query.eq("subcategory_id", filters.subcategory);
-        } else if (filters.category) {
-            query = query.eq("category_id", filters.category);
+            // Category Filtering
+            if (filters.innerCategory) {
+                query = query.eq("inner_category_id", filters.innerCategory);
+            } else if (filters.subcategory) {
+                query = query.eq("subcategory_id", filters.subcategory);
+            } else if (filters.category) {
+                query = query.eq("category_id", filters.category);
+            }
+
+            // Best Selling toggle — when active, only fetch products flagged as best sellers
+            if (filters.bestSelling) {
+                query = query.eq("is_best_selling", true);
+            }
+
+            // Search Logic
+            if (searchQuery) {
+                query = query.ilike("name", `%${searchQuery}%`);
+            }
+
+            try {
+                const { data, error } = await query;
+                if (error) throw error;
+
+                let processedData = data || [];
+
+                // Helper: does this product have ANY variant with stock left?
+                const hasStock = (p: any) =>
+                    (p.product_variants || []).some((v: any) => (v.stock || 0) > 0);
+
+                // 2. SORT — priority order, highest first:
+                //    a) Best sellers always float to the top, regardless of the
+                //       chosen sort or any other active filter.
+                //    b) In-stock products before out-of-stock ones.
+                //    c) Within each of those groups, the user's chosen sort
+                //       (price low/high, newest) is applied as the final tie-breaker.
+                processedData.sort((a: any, b: any) => {
+                    const aBestRank = a.is_best_selling ? 0 : 1;
+                    const bBestRank = b.is_best_selling ? 0 : 1;
+                    if (aBestRank !== bBestRank) return aBestRank - bBestRank;
+
+                    const aRank = hasStock(a) ? 0 : 1;
+                    const bRank = hasStock(b) ? 0 : 1;
+                    if (aRank !== bRank) return aRank - bRank;
+
+                    if (filters.sort === "low") {
+                        const priceA = a.product_variants?.[0]?.wholesale_price || 0;
+                        const priceB = b.product_variants?.[0]?.wholesale_price || 0;
+                        return priceA - priceB;
+                    } else if (filters.sort === "high") {
+                        const priceA = a.product_variants?.[0]?.wholesale_price || 0;
+                        const priceB = b.product_variants?.[0]?.wholesale_price || 0;
+                        return priceB - priceA; // Higher price first
+                    } else if (filters.sort === "newest") {
+                        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                    }
+                    return 0;
+                });
+
+                setProducts(processedData);
+            } catch (err: any) {
+                console.error("Fetch Error:", err.message);
+                setProducts([]);
+            } finally {
+                setLoading(false);
+            }
         }
 
-        // Search Logic
-        if (searchQuery) {
-            query = query.ilike("name", `%${searchQuery}%`);
-        }
-
-        try {
-            const { data, error } = await query;
-            if (error) throw error;
-
-            let processedData = data || [];
-
-            // Helper: does this product have ANY variant with stock left?
-            const hasStock = (p: any) =>
-                (p.product_variants || []).some((v: any) => (v.stock || 0) > 0);
-
-            // 2. SORT: in-stock products always first, out-of-stock always last.
-            // Within each of those two groups, apply the user's chosen sort
-            // (price low/high, newest) as a secondary tie-breaker.
-            processedData.sort((a: any, b: any) => {
-                const aRank = hasStock(a) ? 0 : 1;
-                const bRank = hasStock(b) ? 0 : 1;
-                if (aRank !== bRank) return aRank - bRank;
-
-                if (filters.sort === "low") {
-                    const priceA = a.product_variants?.[0]?.wholesale_price || 0;
-                    const priceB = b.product_variants?.[0]?.wholesale_price || 0;
-                    return priceA - priceB;
-                } else if (filters.sort === "high") {
-                    const priceA = a.product_variants?.[0]?.wholesale_price || 0;
-                    const priceB = b.product_variants?.[0]?.wholesale_price || 0;
-                    return priceB - priceA; // Higher price first
-                } else if (filters.sort === "newest") {
-                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-                }
-                return 0;
-            });
-
-            setProducts(processedData);
-        } catch (err: any) {
-            console.error("Fetch Error:", err.message);
-            setProducts([]);
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    const timer = setTimeout(() => fetchFilteredProducts(), 300);
-    return () => clearTimeout(timer);
-}, [filters, searchQuery]);
+        const timer = setTimeout(() => fetchFilteredProducts(), 300);
+        return () => clearTimeout(timer);
+    }, [filters, searchQuery]);
     return (
         <div className="min-h-screen bg-[#F8FAFC]">
             <Toaster position="bottom-right" />
@@ -164,8 +178,8 @@ useEffect(() => {
                 <div className="flex flex-col lg:flex-row gap-8">
                     {/* FILTER COMPONENT - Rendered only once */}
                     <aside className="w-full lg:w-[300px] shrink-0">
-<div className="sticky top-28 z-30 bg-white border border-slate-100 rounded-[2.5rem] p-6 shadow-sm">
-                                <ProductFilter
+                        <div className="sticky top-28 z-30 bg-white border border-slate-100 rounded-[2.5rem] p-6 shadow-sm">
+                            <ProductFilter
                                 categories={categories}
                                 activeFilters={filters}
                                 onFilterChange={(newFilters: any) => setFilters(newFilters)}

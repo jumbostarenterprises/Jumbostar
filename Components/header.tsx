@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import AuthModal from "./AuthModal";
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -15,7 +15,8 @@ import {
   LogOut,
   LayoutGrid,
   Home,
-  ShoppingBag
+  ShoppingBag,
+  Coins
 } from "lucide-react";
 
 import { ReactNode } from "react";
@@ -26,9 +27,6 @@ interface NavProps {
   label: string;
   count?: number;
   active?: boolean;
-  requiresAuth?: boolean;
-  onAuthRequired?: () => void;
-  isLoggedIn?: boolean;
 }
 
 export default function Header() {
@@ -37,6 +35,7 @@ export default function Header() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [wishlistCount, setWishlistCount] = useState(0);
+  const [coins, setCoins] = useState(0);
 
   const pathname = usePathname();
 
@@ -63,17 +62,20 @@ export default function Header() {
     if (!savedUser) {
       setCartCount(0);
       setWishlistCount(0);
+      setCoins(0);
       return;
     }
     const userId = JSON.parse(savedUser).id;
 
-    const [{ count: cCount }, { count: wCount }] = await Promise.all([
+    const [{ count: cCount }, { count: wCount }, { data: profileData }] = await Promise.all([
       supabase.from("cart").select("*", { count: 'exact', head: true }).eq("user_id", userId),
-      supabase.from("wishlist").select("*", { count: 'exact', head: true }).eq("user_id", userId)
+      supabase.from("wishlist").select("*", { count: 'exact', head: true }).eq("user_id", userId),
+      supabase.from("wholesale_users").select("coins").eq("id", userId).single()
     ]);
 
     setCartCount(cCount || 0);
     setWishlistCount(wCount || 0);
+    setCoins(Math.max(0, Math.floor(profileData?.coins || 0)));
   };
 
   useEffect(() => {
@@ -86,24 +88,11 @@ export default function Header() {
     };
   }, [user]);
 
-  // Opens login modal instead of navigating, when user is not logged in
-  const handleProtectedClick = (e: React.MouseEvent) => {
-    if (!user) {
-      e.preventDefault();
-      setIsAuthOpen(true);
-    }
-  };
-
   return (
     <>
-      {/* FIXED HEADER
-          Using `fixed` instead of `sticky` because `sticky` silently breaks
-          if ANY ancestor (body, a layout wrapper, etc.) has overflow-x/overflow
-          set to hidden/auto/scroll — extremely common in Next.js apps.
-          `fixed` has no such dependency on ancestor overflow, so it stays
-          pinned reliably on every mobile browser. */}
+      {/* FIXED HEADER */}
       <header
-        className="fixed top-0 left-0 right-0 z-50 w-full bg-white/90 backdrop-blur-lg border-b border-slate-200/60 shadow-sm"
+        className="fixed top-0 left-0 right-0 z-50 w-full bg-white/95 backdrop-blur-lg border-b border-slate-200/60 shadow-sm"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -150,6 +139,18 @@ export default function Header() {
 
               {user ? (
                 <div className="flex items-center gap-2 border-l border-slate-200 ml-2 pl-4">
+
+                  {/* Coins Balance */}
+                  <Link
+                    href="/Wholesale/profile"
+                    className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-full transition-all shrink-0"
+                    title="Loyalty coins balance"
+                  >
+                    <Coins size={14} className="text-amber-500 shrink-0" />
+                    <span className="text-[11px] sm:text-xs font-black text-amber-600 tracking-tight">
+                      {coins}
+                    </span>
+                  </Link>
 
                   {/* Desktop Wishlist */}
                   <Link
@@ -198,10 +199,14 @@ export default function Header() {
                     </button>
 
                     {isProfileOpen && (
-                      <div className="absolute right-0 mt-3 w-60 bg-white border border-slate-100 rounded-2xl shadow-xl p-2 z-[60] animate-in fade-in zoom-in duration-200">
+                      <div className="absolute right-0 mt-3 w-64 bg-white border border-slate-100 rounded-2xl shadow-xl p-2 z-[60] animate-in fade-in zoom-in duration-200">
                         <div className="px-4 py-3 border-b border-slate-50 mb-1">
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Business Account</p>
                           <p className="text-sm font-semibold text-slate-900 truncate">{user.email}</p>
+                          <div className="flex items-center gap-1.5 mt-2 px-2.5 py-1 bg-amber-50 border border-amber-100 rounded-full w-fit">
+                            <Coins size={12} className="text-amber-500" />
+                            <span className="text-[10px] font-black text-amber-600">{coins} Coins</span>
+                          </div>
                         </div>
                         <MenuLink href="/Wholesale/profile" icon={<User size={16} />} label="Account Settings" />
                         <MenuLink href="/Wholesale/orders" icon={<Package size={16} />} label="Order History" />
@@ -215,7 +220,6 @@ export default function Header() {
                 </div>
               ) : (
                 <>
-                  {/* Not logged in — desktop wishlist/cart icons still visible, open login modal on click */}
                   <button
                     onClick={() => setIsAuthOpen(true)}
                     className="hidden sm:flex relative p-2 text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-full transition-all"
@@ -242,17 +246,23 @@ export default function Header() {
         </div>
       </header>
 
-      {/* SPACER
-          Since the header is now `fixed` (removed from normal document flow),
-          this invisible spacer reserves the same height so page content
-          doesn't get hidden underneath the header. Heights must match the
-          header's h-16 (mobile) / md:h-20 (desktop) exactly, plus the
-          safe-area inset. */}
+      {/* TOP PADDING SPACER FOR FIXED HEADER */}
       <div
         className="h-16 md:h-20"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
         aria-hidden="true"
       />
+
+      {/* STICKY FIXED ULTRA-COMPACT RIGHT-CORNER COIN PERK BADGE (HOME PAGE ONLY) */}
+
+        <div className="fixed top-[72px] md:top-[88px] right-3 sm:right-6 z-40 pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-2 py-1.5 px-3.5 bg-white/80 backdrop-blur-md border border-slate-200/60 shadow-sm rounded-full">
+            <Coins size={14} className="text-amber-500 shrink-0" />
+            <span className="text-xs font-medium text-slate-700 tracking-tight whitespace-nowrap">
+              <strong className="text-amber-600 font-bold">Coin Perk:</strong> 1 coin per ₹1,000 spent
+            </span>
+          </div>
+        </div>
 
       {/* MOBILE BOTTOM NAVIGATION */}
       <nav
@@ -267,10 +277,10 @@ export default function Header() {
             active={pathname === "/Wholesale/home"}
           />
           <BottomTab
-            href="/Wholesale/categories"
-            icon={<LayoutGrid size={22} />}
-            label="Explore"
-            active={pathname === "/Wholesale/categories"}
+            href="/Wholesale/productgallery"
+            icon={<ShoppingBag size={22} />}
+            label="Shop"
+            active={pathname === "/Wholesale/productgallery"}
           />
 
           {/* Center Cart Button */}
@@ -314,10 +324,10 @@ export default function Header() {
           )}
 
           <BottomTab
-            href="/Wholesale/productgallery"
-            icon={<ShoppingBag size={22} />}
-            label="Shop"
-            active={pathname === "/Wholesale/productgallery"}
+            href="/Wholesale/categories"
+            icon={<LayoutGrid size={22} />}
+            label="Explore"
+            active={pathname === "/Wholesale/categories"}
           />
         </div>
       </nav>

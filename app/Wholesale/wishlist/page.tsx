@@ -58,6 +58,13 @@ export default function WishlistPage() {
     }
   };
 
+  // Called by ProductCard the moment a product is unhearted, so the card
+  // disappears from this grid immediately instead of just flipping its
+  // internal heart-filled state.
+  const handleWishlistRemove = (productId: string) => {
+    setItems((prev) => prev.filter((p) => p.id !== productId));
+  };
+
   if (loading) {
     return (
       <div className="h-screen flex flex-col items-center justify-center gap-4 bg-white">
@@ -115,7 +122,7 @@ export default function WishlistPage() {
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-8">
             {items.map((product) => (
               <div key={product.id} className="w-full">
-                <ProductCard product={product} />
+                <ProductCard product={product} onWishlistRemove={handleWishlistRemove} />
               </div>
             ))}
           </div>

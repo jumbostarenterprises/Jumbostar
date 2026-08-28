@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Image from "next/image";
 import Link from "next/link";
-import { Trash2, Minus, Plus, ShoppingBag, ArrowRight, Loader2, PackageCheck, LockKeyhole, Tag, AlertCircle } from "lucide-react";
+import { Trash2, Minus, Plus, ShoppingBag, ArrowRight, Loader2, PackageCheck, LockKeyhole, Tag, AlertCircle, Coins } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 import AuthModal from "@/Components/AuthModal";
 
@@ -55,6 +55,10 @@ export default function CartPage() {
   const [transportCharge, setTransportCharge] = useState<number>(0);
   const [platformCharge] = useState<number>(80);
   const [handlingFees, setHandlingFees] = useState<number>(0);
+
+  // Loyalty coins wallet balance (1 coin = ₹1). Applied automatically — no manual entry.
+  const [availableCoins, setAvailableCoins] = useState<number>(0);
+
   const MIN_ORDER_VALUE = 1500;
 
   useEffect(() => {
@@ -118,12 +122,13 @@ export default function CartPage() {
     try {
       const { data } = await supabase
         .from("wholesale_users")
-        .select("transport_charge, handling_fees")
+        .select("transport_charge, handling_fees, coins")
         .eq("id", userId)
         .single();
       if (data) {
         setTransportCharge(data.transport_charge || 0);
         setHandlingFees(data.handling_fees || 0);
+        setAvailableCoins(Math.max(0, Math.floor(data.coins || 0)));
       }
     } catch (err) {
       console.log("Charges fetch error");
@@ -188,9 +193,16 @@ export default function CartPage() {
   // Check if any cart item is out of stock
   const hasOutOfStockItems = cartItems.some(item => (item.product_variants?.stock || 0) <= 0);
 
+  // Total payable before coins are applied
+  const preDiscountTotal = Math.max(0, subtotal + transportCharge + handlingFees);
+
+  // Coins are applied automatically — as many as the wallet has, capped so the
+  // total never goes negative. 1 coin = ₹1.
+  const coinsApplied = Math.max(0, Math.min(availableCoins, Math.floor(preDiscountTotal)));
+
   // Kept as exact decimal math all the way through — no intermediate rounding —
-  // so this always equals the sum of the line items shown above it.
-  const grandTotal = Math.max(0, subtotal + transportCharge + handlingFees);
+  // so this always equals the sum of the line items shown above it, minus coins.
+  const grandTotal = Math.max(0, preDiscountTotal - coinsApplied);
 
   const isCheckoutDisabled = isBelowMinimum || cartItems.length === 0 || hasOutOfStockItems;
 
@@ -383,6 +395,12 @@ export default function CartPage() {
                 <span>Service & Handling</span>
                 <span className="text-slate-900">₹{formatCurrency(handlingFees)}</span>
               </div>
+              {coinsApplied > 0 && (
+                <div className="flex justify-between text-[10px] font-bold text-amber-600 uppercase tracking-widest">
+                  <span className="flex items-center gap-1"><Coins size={11} /> Coins Applied ({coinsApplied})</span>
+                  <span>-₹{formatCurrency(coinsApplied)}</span>
+                </div>
+              )}
               <div className="h-px bg-slate-100 my-4" />
               <div className="flex justify-between items-end">
                 <span className="text-[10px] font-black uppercase text-slate-400">Total Payable</span>

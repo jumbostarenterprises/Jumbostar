@@ -568,16 +568,8 @@ export default function WholesaleManagement() {
                                         </FormField>
                                     </div>
 
-                                    <FormField label="Registered HQ Address">
-                                        <textarea
-                                            value={profileForm.registered_address}
-                                            onChange={(e) => setProfileForm(p => ({ ...p, registered_address: e.target.value }))}
-                                            rows={2}
-                                            className="w-full p-4 border border-red-100 rounded-2xl font-bold focus:outline-none focus:ring-2 focus:ring-red-200 resize-none"
-                                        />
-                                    </FormField>
 
-                                    <FormField label="Operational Warehouse Address">
+                                    <FormField label="Warehouse Address">
                                         <textarea
                                             value={profileForm.shop_address}
                                             onChange={(e) => setProfileForm(p => ({ ...p, shop_address: e.target.value }))}

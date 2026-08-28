@@ -11,7 +11,7 @@ import { Autoplay, Pagination, Navigation, EffectFade, FreeMode } from "swiper/m
 import {
   ArrowUpRight,
   ArrowRight, ShoppingBag, Star, ImageOff, Heart,
-  Sparkles, ShieldCheck, Truck, Zap, Plus
+  Sparkles, ShieldCheck, Truck, Zap, Plus, TrendingUp
 } from "lucide-react";
 
 // Swiper styles
@@ -24,7 +24,11 @@ export default function HomePage() {
   const [generalBanners, setGeneralBanners] = useState<any[]>([]);
   const [discountBanners, setDiscountBanners] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
-  const [recentProducts, setRecentProducts] = useState<any[]>([]);
+
+  // Two separate product rails: Best Selling (is_best_selling) and Preferred Items (is_featured)
+  const [bestSellingProducts, setBestSellingProducts] = useState<any[]>([]);
+  const [preferredProducts, setPreferredProducts] = useState<any[]>([]);
+
   const [loading, setLoading] = useState(true);
 
   // 1. Add subcategories to your state
@@ -54,9 +58,15 @@ export default function HomePage() {
         if (subRes.data) setSubcategories(subRes.data);
 
         if (prodRes.data) {
-          // FILTER: Only items where is_featured is true for the "Trending" section
+          // BEST SELLING: products explicitly flagged is_best_selling.
+          // NOTE: no fallback here on purpose — if nothing is flagged,
+          // this stays an empty array and the whole section hides below.
+          const bestSelling = prodRes.data.filter(p => p.is_best_selling === true);
+          setBestSellingProducts(bestSelling);
+
+          // PREFERRED ITEMS: products explicitly flagged is_featured (Home Page picks)
           const featured = prodRes.data.filter(p => p.is_featured === true);
-          setRecentProducts(featured.length > 0 ? featured : prodRes.data.slice(0, 8));
+          setPreferredProducts(featured.length > 0 ? featured : prodRes.data.slice(0, 8));
         }
       } catch (error) {
         console.error("Error:", error);
@@ -242,53 +252,53 @@ export default function HomePage() {
     </div>
   </div>
 </section>
-      {/* SECTION 3: TRENDING ARRIVALS - EDITORIAL REDESIGN */}
-      {/* SECTION 3: PREFERRED SELECTIONS */}
-      <section className="max-w-[1400px] mx-auto px-4 py-8 bg-white overflow-hidden">
-        <div className="relative mb-8 md:mb-16 px-1">
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-3 md:gap-4 mb-2">
-              <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.5em] text-red-600 bg-red-50 px-2 md:px-3 py-1 rounded-sm whitespace-nowrap">
-                Editor's Choice
-              </span>
-              <div className="h-[1px] flex-grow bg-slate-100"></div>
-            </div>
-
-            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 md:gap-8">
-              <div className="relative">
-                <span className="absolute -top-6 md:-top-10 -left-2 md:-left-4 text-6xl md:text-8xl font-black text-slate-50 select-none -z-10 tracking-tighter opacity-70 md:opacity-100">
-                  BEST
+      {/* SECTION 3: BEST SELLING — only renders when at least one product is flagged */}
+      {bestSellingProducts.length > 0 && (
+        <section className="max-w-[1400px] mx-auto px-4 py-8 bg-white overflow-hidden">
+          <div className="relative mb-8 md:mb-16 px-1">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3 md:gap-4 mb-2">
+                <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.5em] text-emerald-600 bg-emerald-50 px-2 md:px-3 py-1 rounded-sm whitespace-nowrap">
+                  Top Performers
                 </span>
-                <h2 className="text-5xl md:text-5xl font-black text-slate-900 tracking-[-0.05em] md:tracking-[-0.06em] leading-[0.9] md:leading-[0.8]">
-                  Preferred <br className="md:hidden" /> Items
-                  <span className="absolute -bottom-1 md:-bottom-2 left-0 w-full h-2 md:h-3 bg-red-600/10 -rotate-1"></span>
-                </h2>
-                <p className="mt-4 md:mt-6 text-slate-400 font-medium uppercase text-[9px] md:text-[10px] tracking-[0.2em] md:tracking-[0.3em] max-w-[240px] md:max-w-xs leading-relaxed">
-                  Handpicked premium quality <br className="hidden md:block" /> wholesale essentials.
-                </p>
+                <div className="h-[1px] flex-grow bg-slate-100"></div>
               </div>
 
-              <div className="hidden md:flex gap-4 mt-12 justify-start">
-                <button className="prev-trending h-12 w-12 border border-slate-200 rounded-full flex items-center justify-center bg-white text-slate-900 hover:bg-slate-900 hover:text-white transition-all shadow-sm">
-                  <ArrowRight className="rotate-180" size={20} />
-                </button>
-                <button className="next-trending h-12 w-12 border border-slate-200 rounded-full flex items-center justify-center bg-white text-slate-900 hover:bg-slate-900 hover:text-white transition-all shadow-sm">
-                  <ArrowRight size={20} />
-                </button>
+              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 md:gap-8">
+                <div className="relative">
+                  <span className="absolute -top-6 md:-top-10 -left-2 md:-left-4 text-6xl md:text-8xl font-black text-slate-50 select-none -z-10 tracking-tighter opacity-70 md:opacity-100">
+                    TOP
+                  </span>
+                  <h2 className="text-5xl md:text-5xl font-black text-slate-900 tracking-[-0.05em] md:tracking-[-0.06em] leading-[0.9] md:leading-[0.8] flex items-center gap-3">
+                    Best <br className="md:hidden" /> Selling
+                    <TrendingUp size={36} className="text-emerald-500 hidden md:block" />
+                    <span className="absolute -bottom-1 md:-bottom-2 left-0 w-full h-2 md:h-3 bg-emerald-600/10 -rotate-1"></span>
+                  </h2>
+                  <p className="mt-4 md:mt-6 text-slate-400 font-medium uppercase text-[9px] md:text-[10px] tracking-[0.2em] md:tracking-[0.3em] max-w-[240px] md:max-w-xs leading-relaxed">
+                    Our most reordered <br className="hidden md:block" /> wholesale favorites.
+                  </p>
+                </div>
+
+                <div className="hidden md:flex gap-4 mt-12 justify-start">
+                  <button className="prev-bestselling h-12 w-12 border border-slate-200 rounded-full flex items-center justify-center bg-white text-slate-900 hover:bg-slate-900 hover:text-white transition-all shadow-sm">
+                    <ArrowRight className="rotate-180" size={20} />
+                  </button>
+                  <button className="next-bestselling h-12 w-12 border border-slate-200 rounded-full flex items-center justify-center bg-white text-slate-900 hover:bg-slate-900 hover:text-white transition-all shadow-sm">
+                    <ArrowRight size={20} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="relative group/swiper -mx-4 px-4 md:mx-0 md:px-0">
-          {recentProducts.length > 0 ? (
+          <div className="relative group/swiper -mx-4 px-4 md:mx-0 md:px-0">
             <Swiper
               modules={[Navigation, Autoplay]}
               spaceBetween={16}
               slidesPerView={1.25}
               navigation={{
-                nextEl: ".next-trending",
-                prevEl: ".prev-trending",
+                nextEl: ".next-bestselling",
+                prevEl: ".prev-bestselling",
               }}
               breakpoints={{
                 640: { slidesPerView: 2.2, spaceBetween: 24 },
@@ -298,20 +308,16 @@ export default function HomePage() {
               autoplay={{ delay: 5000, disableOnInteraction: true }}
               className="!overflow-visible"
             >
-              {recentProducts.map((product) => (
+              {bestSellingProducts.map((product) => (
                 <SwiperSlide key={product.id} className="pb-4">
                   {/* Ensure the entire product object (with variants) is passed */}
                   <ProductCard product={product} />
                 </SwiperSlide>
               ))}
             </Swiper>
-          ) : (
-            <div className="py-20 text-center bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200">
-              <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">No Preferred Products Found</p>
-            </div>
-          )}
-        </div>
-      </section>
+          </div>
+        </section>
+      )}
 
       {/* SECTION 4: SUBCATEGORY EXPLORER */}
       <section className="bg-[#f8fafc] py-1 overflow-hidden">
@@ -402,6 +408,76 @@ export default function HomePage() {
           })}
         </div>
       </section>
+      {/* SECTION 3B: PREFERRED SELECTIONS */}
+      <section className="max-w-[1400px] mx-auto px-4 py-8 bg-white overflow-hidden">
+        <div className="relative mb-8 md:mb-16 px-1">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-3 md:gap-4 mb-2">
+              <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.5em] text-red-600 bg-red-50 px-2 md:px-3 py-1 rounded-sm whitespace-nowrap">
+                Editor's Choice
+              </span>
+              <div className="h-[1px] flex-grow bg-slate-100"></div>
+            </div>
+
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 md:gap-8">
+              <div className="relative">
+                <span className="absolute -top-6 md:-top-10 -left-2 md:-left-4 text-6xl md:text-8xl font-black text-slate-50 select-none -z-10 tracking-tighter opacity-70 md:opacity-100">
+                  BEST
+                </span>
+                <h2 className="text-5xl md:text-5xl font-black text-slate-900 tracking-[-0.05em] md:tracking-[-0.06em] leading-[0.9] md:leading-[0.8]">
+                  Preferred <br className="md:hidden" /> Items
+                  <span className="absolute -bottom-1 md:-bottom-2 left-0 w-full h-2 md:h-3 bg-red-600/10 -rotate-1"></span>
+                </h2>
+                <p className="mt-4 md:mt-6 text-slate-400 font-medium uppercase text-[9px] md:text-[10px] tracking-[0.2em] md:tracking-[0.3em] max-w-[240px] md:max-w-xs leading-relaxed">
+                  Handpicked premium quality <br className="hidden md:block" /> wholesale essentials.
+                </p>
+              </div>
+
+              <div className="hidden md:flex gap-4 mt-12 justify-start">
+                <button className="prev-trending h-12 w-12 border border-slate-200 rounded-full flex items-center justify-center bg-white text-slate-900 hover:bg-slate-900 hover:text-white transition-all shadow-sm">
+                  <ArrowRight className="rotate-180" size={20} />
+                </button>
+                <button className="next-trending h-12 w-12 border border-slate-200 rounded-full flex items-center justify-center bg-white text-slate-900 hover:bg-slate-900 hover:text-white transition-all shadow-sm">
+                  <ArrowRight size={20} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative group/swiper -mx-4 px-4 md:mx-0 md:px-0">
+          {preferredProducts.length > 0 ? (
+            <Swiper
+              modules={[Navigation, Autoplay]}
+              spaceBetween={16}
+              slidesPerView={1.25}
+              navigation={{
+                nextEl: ".next-trending",
+                prevEl: ".prev-trending",
+              }}
+              breakpoints={{
+                640: { slidesPerView: 2.2, spaceBetween: 24 },
+                1024: { slidesPerView: 3.2, spaceBetween: 32 },
+                1280: { slidesPerView: 4, spaceBetween: 40 },
+              }}
+              autoplay={{ delay: 5000, disableOnInteraction: true }}
+              className="!overflow-visible"
+            >
+              {preferredProducts.map((product) => (
+                <SwiperSlide key={product.id} className="pb-4">
+                  {/* Ensure the entire product object (with variants) is passed */}
+                  <ProductCard product={product} />
+                </SwiperSlide>
+              ))}
+            </Swiper>
+          ) : (
+            <div className="py-20 text-center bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200">
+              <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">No Preferred Products Found</p>
+            </div>
+          )}
+        </div>
+      </section>
+
 
       {/* SECTION 5: Discount*/}
       <section className="max-w-[1400px] mx-auto px-2">
