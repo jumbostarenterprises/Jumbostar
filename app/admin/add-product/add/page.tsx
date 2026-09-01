@@ -34,8 +34,8 @@ export default function AddProductPage() {
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
   const [description, setDescription] = useState("");
-  
-  // --- FIXED IMAGE STATES ---
+
+  // --- IMAGE STATES ---
   const [existingImages, setExistingImages] = useState<any[]>([]); // Images from database
   const [newImages, setNewImages] = useState<{ file: File; preview: string }[]>([]); // Newly uploaded images
   const [imagesToDelete, setImagesToDelete] = useState<string[]>([]); // Track deleted DB image IDs
@@ -85,50 +85,104 @@ export default function AddProductPage() {
   const fetchCompleteProductData = async (id: string) => {
     setIsFetching(true);
     try {
-      const { data: product } = await supabase.from("products").select("*").eq("id", id).single();
+      const { data: product, error: productError } = await supabase
+        .from("products").select("*").eq("id", id).single();
+      if (productError) throw productError;
+
       if (product) {
-        setName(product.name || ""); 
-        setBrand(product.brand || ""); 
+        setName(product.name || "");
+        setBrand(product.brand || "");
         setDescription(product.description || "");
-        setSelectedCategory(product.category_id || ""); 
+        setSelectedCategory(product.category_id || "");
         setSelectedSub(product.subcategory_id || "");
         setSelectedInner(product.inner_category_id || "");
       }
-      const { data: varData } = await supabase.from("product_variants").select("*").eq("product_id", id);
+
+      const { data: varData, error: varError } = await supabase
+        .from("product_variants")
+        .select("*")
+        .eq("product_id", id)
+        .order("created_at", { ascending: true });
+      if (varError) throw varError;
+
       if (varData) {
         const variantsWithTiers = await Promise.all(varData.map(async (v) => {
-          const { data: tiers } = await supabase.from("variant_tiers").select("*").eq("variant_id", v.id).order("min_qty", { ascending: true });
-          return { ...v, tiers: tiers || [] };
+          const { data: tiers } = await supabase
+            .from("variant_tiers")
+            .select("*")
+            .eq("variant_id", v.id)
+            .order("min_qty", { ascending: true });
+          return {
+            id: v.id,
+            variant: v.variant,
+            mrp: String(v.mrp ?? ""),
+            stock: String(v.stock ?? ""),
+            unit: v.unit,
+            wholesale_price: String(v.wholesale_price ?? ""),
+            discount: String(v.discount ?? ""),
+            min_quantity: String(v.min_quantity ?? "1"),
+            max_quantity: String(v.max_quantity ?? "9999"),
+            tiers: (tiers || []).map(t => ({
+              min_qty: String(t.min_qty ?? ""),
+              price: String(t.price ?? "")
+            }))
+          } as Variant;
         }));
-        setVariants(variantsWithTiers);
+        setVariants(variantsWithTiers.length > 0 ? variantsWithTiers : [initialVariant]);
       }
+
       const { data: imgData } = await supabase.from("product_images").select("*").eq("product_id", id);
-      if (imgData) setExistingImages(imgData); // Set existing images here
-    } finally { setIsFetching(false); }
+      setExistingImages(imgData || []);
+
+      // Reset any pending local-only image edits, since we just synced from DB
+      setNewImages([]);
+      setImagesToDelete([]);
+    } catch (err: any) {
+      console.error("Fetch product error:", err);
+      toast.error(err.message || "Failed to load product");
+    } finally {
+      setIsFetching(false);
+    }
   };
 
   // --- HELPERS ---
   const handleVariantChange = (index: number, field: keyof Variant, value: any) => {
-    const updated = [...variants];
-    (updated[index] as any)[field] = value;
-    if (field === "mrp" || field === "discount") {
-      const mrp = Number(updated[index].mrp);
-      const discount = Number(updated[index].discount);
-      updated[index].wholesale_price = (mrp - (mrp * discount) / 100).toFixed(2);
-    }
-    setVariants(updated);
+    setVariants(prev => prev.map((v, i) => {
+      if (i !== index) return v;
+      const updated = { ...v, [field]: value };
+      if (field === "mrp" || field === "discount") {
+        const mrp = Number(updated.mrp);
+        const discount = Number(updated.discount);
+        updated.wholesale_price = (mrp - (mrp * discount) / 100).toFixed(2);
+      }
+      return updated;
+    }));
   };
 
   const handleTierChange = (vIdx: number, tIdx: number, field: keyof Tier, value: string) => {
-    const updated = [...variants];
-    updated[vIdx].tiers[tIdx][field] = value;
-    setVariants(updated);
+    setVariants(prev => prev.map((v, i) => {
+      if (i !== vIdx) return v;
+      return {
+        ...v,
+        tiers: v.tiers.map((t, j) => j === tIdx ? { ...t, [field]: value } : t)
+      };
+    }));
   };
 
   const addTier = (vIdx: number) => {
-    const updated = [...variants];
-    updated[vIdx].tiers.push({ min_qty: "", price: "" });
-    setVariants(updated);
+    setVariants(prev => prev.map((v, i) =>
+      i === vIdx ? { ...v, tiers: [...v.tiers, { min_qty: "", price: "" }] } : v
+    ));
+  };
+
+  const removeTier = (vIdx: number, tIdx: number) => {
+    setVariants(prev => prev.map((v, i) =>
+      i === vIdx ? { ...v, tiers: v.tiers.filter((_, idx) => idx !== tIdx) } : v
+    ));
+  };
+
+  const removeVariant = (idx: number) => {
+    setVariants(prev => prev.filter((_, i) => i !== idx));
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -142,109 +196,150 @@ export default function AddProductPage() {
     }
   };
 
-const handleSubmit = async () => {
-  if (!name.trim() || !selectedCategory) return toast.error("Name and Category required");
-  
-  setLoading(true);
-  try {
-    let currentProductId = editingId;
-    const payload = { 
-      name, brand, description, 
-      category_id: selectedCategory, 
-      subcategory_id: selectedSub || null, 
-      inner_category_id: selectedInner || null 
-    };
-
-    // 1. SAVE/UPDATE MAIN PRODUCT
-    if (editingId) {
-      const { error: updateError } = await supabase.from("products").update(payload).eq("id", editingId);
-      if (updateError) throw updateError;
-    } else {
-      const { data, error: insertError } = await supabase.from("products").insert(payload).select().single();
-      if (insertError) throw insertError;
-      currentProductId = data.id;
+  const handleSubmit = async () => {
+    if (!name.trim() || !selectedCategory) {
+      return toast.error("Name and Category required");
     }
 
-    // 2. HANDLE VARIANTS
-    if (editingId) {
-      await supabase.from("product_variants").delete().eq("product_id", currentProductId);
+    // Validate variants up front instead of silently skipping/inserting blanks
+    const cleanedVariants = variants.filter(v =>
+      v.variant.trim() || v.mrp || v.stock // ignore a totally untouched blank row
+    );
+    const invalidVariant = cleanedVariants.find(v => !v.variant.trim());
+    if (invalidVariant) {
+      return toast.error("Every variant needs a size/label before saving");
+    }
+    if (cleanedVariants.length === 0) {
+      return toast.error("Add at least one variant");
     }
 
-    for (const v of variants) {
-      if (!v.variant) continue;
-      const { data: sV, error: vError } = await supabase.from("product_variants").insert({
-        product_id: currentProductId, 
-        variant: v.variant, 
-        mrp: Number(v.mrp), 
-        stock: Number(v.stock),
-        unit: v.unit, 
-        wholesale_price: Number(v.wholesale_price), 
-        discount: Number(v.discount),
-        min_quantity: Number(v.min_quantity), 
-        max_quantity: Number(v.max_quantity)
-      }).select().single();
+    setLoading(true);
+    try {
+      let currentProductId = editingId;
+      const payload = {
+        name, brand, description,
+        category_id: selectedCategory,
+        subcategory_id: selectedSub || null,
+        inner_category_id: selectedInner || null
+      };
 
-      if (vError) throw vError;
-
-      if (v.tiers && v.tiers.length > 0) {
-        const tPayload = v.tiers.map(t => ({ 
-          variant_id: sV.id, 
-          min_qty: Number(t.min_qty), 
-          price: Number(t.price) 
-        }));
-        await supabase.from("variant_tiers").insert(tPayload);
+      // 1. SAVE/UPDATE MAIN PRODUCT
+      if (editingId) {
+        const { error: updateError } = await supabase.from("products").update(payload).eq("id", editingId);
+        if (updateError) throw updateError;
+      } else {
+        const { data, error: insertError } = await supabase.from("products").insert(payload).select().single();
+        if (insertError) throw insertError;
+        currentProductId = data.id;
       }
-    }
 
-    // 3. IMAGE UPLOAD & DELETION LOGIC
-    // Delete removed images from database
-    if (imagesToDelete.length > 0) {
-      const { error: deleteError } = await supabase.from("product_images").delete().in("id", imagesToDelete);
-      if (deleteError) console.error("DB Image Delete Error:", deleteError.message);
-    }
+      // 2. HANDLE VARIANTS (delete-then-reinsert; must not silently fail)
+      if (editingId) {
+        const { error: delVarError } = await supabase
+          .from("product_variants")
+          .delete()
+          .eq("product_id", currentProductId);
+        if (delVarError) throw delVarError;
+      }
 
-    // Upload new images
-    if (newImages.length > 0) {
-      await Promise.all(newImages.map(async ({ file }) => {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
-        const path = `products/${fileName}`;
-
-        // Upload to Storage
-        const { error: uploadError } = await supabase.storage
-          .from("product-images")
-          .upload(path, file);
-        
-        if (uploadError) {
-          console.error("Upload error:", uploadError.message);
-          return;
-        }
-
-        // Get Public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from("product-images")
-          .getPublicUrl(path);
-
-        // Insert into Database
-        const { error: dbImgError } = await supabase.from("product_images").insert({
+      for (const v of cleanedVariants) {
+        const { data: sV, error: vError } = await supabase.from("product_variants").insert({
           product_id: currentProductId,
-          image_url: publicUrl
-        });
+          variant: v.variant.trim(),
+          mrp: Number(v.mrp) || 0,
+          stock: Number(v.stock) || 0,
+          unit: v.unit,
+          wholesale_price: Number(v.wholesale_price) || 0,
+          discount: Number(v.discount) || 0,
+          min_quantity: Number(v.min_quantity) || 1,
+          max_quantity: Number(v.max_quantity) || 9999
+        }).select().single();
 
-        if (dbImgError) console.error("DB Image Error:", dbImgError.message);
-      }));
+        if (vError) throw vError;
+
+        const validTiers = v.tiers.filter(t => t.min_qty && t.price);
+        if (validTiers.length > 0) {
+          const tPayload = validTiers.map(t => ({
+            variant_id: sV.id,
+            min_qty: Number(t.min_qty),
+            price: Number(t.price)
+          }));
+          const { error: tierError } = await supabase.from("variant_tiers").insert(tPayload);
+          if (tierError) throw tierError;
+        }
+      }
+
+      // 3. IMAGE DELETIONS (DB rows + storage objects)
+      if (imagesToDelete.length > 0) {
+        const toRemove = existingImages.filter(img => imagesToDelete.includes(img.id));
+        const { error: deleteError } = await supabase.from("product_images").delete().in("id", imagesToDelete);
+        if (deleteError) console.error("DB Image Delete Error:", deleteError.message);
+
+        // Best-effort cleanup of storage objects so the bucket doesn't accumulate orphans
+        const paths = toRemove
+          .map(img => {
+            try {
+              const url = new URL(img.image_url);
+              const marker = "/product-images/";
+              const idx = url.pathname.indexOf(marker);
+              return idx !== -1 ? url.pathname.slice(idx + marker.length) : null;
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean) as string[];
+        if (paths.length > 0) {
+          await supabase.storage.from("product-images").remove(paths);
+        }
+      }
+
+      // 4. NEW IMAGE UPLOADS
+      if (newImages.length > 0) {
+        await Promise.all(newImages.map(async ({ file }) => {
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
+          const path = `products/${fileName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from("product-images")
+            .upload(path, file);
+
+          if (uploadError) {
+            console.error("Upload error:", uploadError.message);
+            return;
+          }
+
+          const { data: { publicUrl } } = supabase.storage
+            .from("product-images")
+            .getPublicUrl(path);
+
+          const { error: dbImgError } = await supabase.from("product_images").insert({
+            product_id: currentProductId,
+            image_url: publicUrl
+          });
+
+          if (dbImgError) console.error("DB Image Error:", dbImgError.message);
+        }));
+      }
+
+      toast.success(editingId ? "Product updated successfully!" : "Product added successfully!");
+
+      // Refetch fresh state directly instead of relying on router navigation,
+      // since navigating to the same route does not remount this component
+      // or re-run the initial useEffect in the Next.js app router.
+      setEditingId(currentProductId);
+      await fetchCompleteProductData(currentProductId as string);
+
+      // Keep the URL in sync with the id (no reliance on this to refresh data)
+      window.history.replaceState(null, "", `/admin/add-product?id=${currentProductId}`);
+
+    } catch (err: any) {
+      console.error("Submit Error:", err);
+      toast.error(err.message || "Submission failed");
+    } finally {
+      setLoading(false);
     }
-
-    toast.success(editingId ? "Product updated successfully!" : "Product added successfully!");
-    router.push("/admin/add-product"); 
-    
-  } catch (err: any) { 
-    console.error("Submit Error:", err);
-    toast.error(err.message || "Submission failed"); 
-  } finally { 
-    setLoading(false); 
-  }
-};
+  };
 
   return (
     <div className="min-h-screen bg-[#F4F7FE] p-4 md:p-8 font-sans text-slate-900">
@@ -265,17 +360,17 @@ const handleSubmit = async () => {
           <button onClick={() => window.location.reload()} className="px-5 py-2.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition-all flex items-center gap-2">
             <RotateCcw size={14} /> RESET
           </button>
-          <button onClick={handleSubmit} disabled={loading} className="px-8 py-3 bg-slate-900 text-white rounded-xl font-bold text-xs shadow-lg shadow-slate-900/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50">
+          <button onClick={handleSubmit} disabled={loading || isFetching} className="px-8 py-3 bg-slate-900 text-white rounded-xl font-bold text-xs shadow-lg shadow-slate-900/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50">
             {loading ? "PROCESSING..." : "SAVE CHANGES"}
           </button>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
+
         {/* LEFT COLUMN: PRIMARY DATA */}
         <div className="lg:col-span-8 space-y-8">
-          
+
           {/* PRODUCT INFO CARD */}
           <section className="bg-white p-6 rounded-[24px] border border-slate-100 shadow-sm">
             <header className="flex items-center gap-2 mb-6 text-slate-400 font-bold text-[10px] uppercase tracking-widest">
@@ -309,11 +404,11 @@ const handleSubmit = async () => {
             </div>
 
             {variants.map((v, i) => (
-              <div key={i} className="group bg-white rounded-[24px] border border-slate-100 shadow-sm overflow-hidden transition-all hover:border-blue-200 hover:shadow-xl hover:shadow-blue-900/5">
+              <div key={v.id ?? `new-${i}`} className="group bg-white rounded-[24px] border border-slate-100 shadow-sm overflow-hidden transition-all hover:border-blue-200 hover:shadow-xl hover:shadow-blue-900/5">
                 <div className="p-6 space-y-6">
                   <div className="flex justify-between items-center">
                     <span className="bg-slate-900 text-white text-[10px] font-black px-3 py-1 rounded-full">VARIANT #{i + 1}</span>
-                    <button onClick={() => setVariants(variants.filter((_, idx) => idx !== i))} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
+                    <button onClick={() => removeVariant(i)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
                       <Trash2 size={18} />
                     </button>
                   </div>
@@ -360,7 +455,7 @@ const handleSubmit = async () => {
                       <h4 className="text-[10px] font-black text-slate-400 flex items-center gap-2"><ListOrdered size={14} /> BULK PRICING TIERS</h4>
                       <button onClick={() => addTier(i)} className="text-[9px] font-black text-red-600 px-3 py-1 bg-white border border-blue-100 rounded-lg hover:bg-red-600 hover:text-white transition-all">+ NEW TIER</button>
                     </div>
-                    
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {v.tiers?.map((tier, tIdx) => (
                         <div key={tIdx} className="flex items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm group/tier">
@@ -372,11 +467,7 @@ const handleSubmit = async () => {
                             <span className="text-[9px] font-bold text-slate-400">Price:</span>
                             <input type="number" value={tier.price} onChange={e => handleTierChange(i, tIdx, "price", e.target.value)} className="w-full p-1.5 border-b border-slate-100 focus:border-red-500 outline-none text-xs font-black text-red-600" />
                           </div>
-                          <button onClick={() => {
-                            const updated = [...variants];
-                            updated[i].tiers = updated[i].tiers.filter((_, idx) => idx !== tIdx);
-                            setVariants(updated);
-                          }} className="p-1.5 text-slate-200 hover:text-red-500"><X size={14}/></button>
+                          <button onClick={() => removeTier(i, tIdx)} className="p-1.5 text-slate-200 hover:text-red-500"><X size={14}/></button>
                         </div>
                       ))}
                       {v.tiers.length === 0 && <p className="text-[10px] text-slate-400 italic py-2 col-span-2 text-center">No active bulk tiers for this variant.</p>}
@@ -390,7 +481,7 @@ const handleSubmit = async () => {
 
         {/* RIGHT COLUMN: SIDEBAR CONTROLS */}
         <div className="lg:col-span-4 space-y-8">
-          
+
           {/* CATEGORY SELECTOR */}
           <section className="bg-white p-6 rounded-[24px] border border-slate-100 shadow-sm space-y-5">
             <header className="text-slate-400 font-bold text-[10px] uppercase tracking-widest flex items-center gap-2">
@@ -420,7 +511,7 @@ const handleSubmit = async () => {
               <ImageIcon size={14} /> Media Assets
             </header>
             <div className="grid grid-cols-2 gap-3">
-              
+
               {/* Existing Images from DB */}
               {existingImages.map((img) => (
                 <div key={img.id} className="relative aspect-square rounded-xl overflow-hidden group border border-slate-100">

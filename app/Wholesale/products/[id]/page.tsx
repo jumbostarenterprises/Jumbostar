@@ -40,7 +40,13 @@ export default function ProductPage() {
     useEffect(() => {
         async function fetchFullData() {
             setLoading(true);
-            const { data: mainProduct } = await supabase
+            // Reset selection state so a stale index left over from a
+            // previously viewed product can't point past the end of this
+            // product's (possibly shorter) variants/images arrays.
+            setActiveImg(0);
+            setActiveVariantIdx(0);
+
+            const { data: mainProduct, error: productError } = await supabase
                 .from("products")
                 .select(`
                     *, 
@@ -50,10 +56,19 @@ export default function ProductPage() {
                 .eq("id", id)
                 .single();
 
+            if (productError) {
+                console.error("Product fetch error:", productError.message);
+            }
+
             if (mainProduct) {
+                // Normalize potentially-null arrays from Supabase so downstream
+                // code can safely assume they're always arrays
+                mainProduct.product_variants = mainProduct.product_variants || [];
+                mainProduct.product_images = mainProduct.product_images || [];
+
                 // Ensure tiers are sorted by min_qty so our logic finds the correct one
                 mainProduct.product_variants.forEach((v: any) => {
-                    v.variant_tiers.sort((a: any, b: any) => a.min_qty - b.min_qty);
+                    v.variant_tiers = (v.variant_tiers || []).sort((a: any, b: any) => a.min_qty - b.min_qty);
                 });
 
                 setProduct(mainProduct);
@@ -63,11 +78,18 @@ export default function ProductPage() {
                 const userId = await getUserId();
                 if (userId) {
                     const { data: wish } = await supabase.from("wishlist").select("id").eq("user_id", userId).eq("product_id", id).maybeSingle();
-                    if (wish) setIsInWishlist(true);
+                    setIsInWishlist(!!wish);
 
                     const variantIds = mainProduct.product_variants.map((v: any) => v.id);
-                    const { data: cart } = await supabase.from("cart").select("id").eq("user_id", userId).in("variant_id", variantIds).maybeSingle();
-                    if (cart) setIsInCart(true);
+                    if (variantIds.length > 0) {
+                        const { data: cart } = await supabase.from("cart").select("id").eq("user_id", userId).in("variant_id", variantIds).maybeSingle();
+                        setIsInCart(!!cart);
+                    } else {
+                        setIsInCart(false);
+                    }
+                } else {
+                    setIsInWishlist(false);
+                    setIsInCart(false);
                 }
 
                 // ALL PRODUCTS (except the current one), newest first — no category
@@ -82,6 +104,8 @@ export default function ProductPage() {
                     console.error("Related products fetch error:", relatedError.message);
                 }
                 setRelatedProducts(related || []);
+            } else {
+                setProduct(null);
             }
             setLoading(false);
         }
@@ -147,7 +171,13 @@ export default function ProductPage() {
             }
         }
     };
+
     const handleActionClick = async (mode: "cart" | "buy") => {
+        if (!currentVariant) {
+            toast.error("This product has no variants available yet");
+            return;
+        }
+
         const userId = await getUserId();
 
         // If no user is found, show the toast and STOP
@@ -181,6 +211,7 @@ export default function ProductPage() {
     };
 
     const confirmAction = async () => {
+        if (!currentVariant) return;
         setActionLoading(true);
         const userId = await getUserId();
         try {
@@ -212,6 +243,29 @@ export default function ProductPage() {
 
     const currentVariant = product.product_variants[activeVariantIdx];
     const images = product.product_images;
+
+    // A product can exist in the DB without any variants saved yet (e.g. still
+    // being set up in the admin panel). Show a clear message instead of
+    // crashing on currentVariant.min_quantity etc.
+    if (!currentVariant) {
+        return (
+            <div className="min-h-screen bg-[#F8FAFC]">
+                <Toaster position="top-center" reverseOrder={false} />
+                <nav className="bg-white/80 sticky top-0 z-40 border-b border-slate-100 backdrop-blur-md">
+                    <div className="max-w-[1400px] mx-auto px-4 py-4 flex items-center">
+                        <Link href="/Wholesale/productgallery" className="group flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-all">
+                            <ArrowLeft size={14} className="group-hover:-translate-x-1 transition-transform" /> Back
+                        </Link>
+                    </div>
+                </nav>
+                <div className="p-20 text-center space-y-2">
+                    <p className="font-black text-slate-900">{product.name}</p>
+                    <p className="text-sm text-slate-400 font-medium">This product doesn't have any purchasable variants set up yet.</p>
+                </div>
+            </div>
+        );
+    }
+
     const minQty = currentVariant.min_quantity;
     const maxQty = currentVariant.max_quantity || 9999;
     const wholesaleBase = currentVariant.wholesale_price;
@@ -262,7 +316,9 @@ export default function ProductPage() {
                                 <span className="bg-slate-900 text-white text-[8px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest">{product.brand}</span>
                             </div>
                             <div className="relative aspect-square w-full">
-                                <Image src={images[activeImg]?.image_url} alt={product.name} fill className="object-contain p-8 md:p-20" priority />
+                                {images[activeImg]?.image_url && (
+                                    <Image src={images[activeImg].image_url} alt={product.name} fill className="object-contain p-8 md:p-20" priority />
+                                )}
                             </div>
                         </div>
                         <div className="flex gap-3 mt-4 overflow-x-auto scrollbar-hide">
