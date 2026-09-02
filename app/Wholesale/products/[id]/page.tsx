@@ -412,23 +412,23 @@ export default function ProductPage() {
                     </div>
                 </div>
 
-                {relatedProducts.length > 0 && (
-                    <section className="py-12 border-t border-slate-100 overflow-hidden">
-                        <h2 className="text-xl font-black text-slate-900 tracking-tight mb-8 px-4 uppercase">Recommended from Vault</h2>
+          {relatedProducts.length > 0 && (
+                    <section className="py-8 border-t border-slate-100 overflow-hidden">
+                        <h2 className="text-lg md:text-xl font-black text-slate-900 tracking-tight mb-4 md:mb-8 px-4 uppercase">Recommended from Vault</h2>
                         <div className="relative w-full overflow-hidden">
                             <div
-                                className="auto-scroll-container flex gap-6 scrollbar-hide"
+                                className="auto-scroll-container flex gap-3 md:gap-6 scrollbar-hide"
                                 style={{
                                     ["--item-count" as any]: relatedProducts.length,
                                     animationDuration: `${relatedProducts.length * 5}s`,
                                 }}
                             >
                                 {[...relatedProducts, ...relatedProducts].map((p, idx) => (
-                                    <div key={`${p.id}-${idx}`} className="w-[250px] flex-shrink-0"><ProductCard product={p} /></div>
+                                    <div key={`${p.id}-${idx}`} className="w-[160px] md:w-[250px] flex-shrink-0"><ProductCard product={p} /></div>
                                 ))}
                             </div>
-                            <div className="absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-[#F8FAFC] to-transparent z-10 pointer-events-none" />
-                            <div className="absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-[#F8FAFC] to-transparent z-10 pointer-events-none" />
+                            <div className="absolute inset-y-0 left-0 w-12 md:w-20 bg-gradient-to-r from-[#F8FAFC] to-transparent z-10 pointer-events-none" />
+                            <div className="absolute inset-y-0 right-0 w-12 md:w-20 bg-gradient-to-l from-[#F8FAFC] to-transparent z-10 pointer-events-none" />
                         </div>
                     </section>
                 )}
