@@ -206,29 +206,25 @@ export default function HomePage() {
         </Swiper>
       </section>
 
-      {/* SECTION 3: BEST SELLING — mobile shows this right after the banner (order-2), desktop keeps its original spot (order-3) */}
-      {bestSellingProducts.length > 0 && (
-        <section className="order-2 md:order-3 max-w-[1400px] mx-auto px-4 py-8 bg-white overflow-hidden w-full">
-          <div className="relative mb-8 md:mb-16 px-1">
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-3 md:gap-4 mb-2">
-                <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.5em] text-emerald-600 bg-emerald-50 px-2 md:px-3 py-1 rounded-sm whitespace-nowrap">
-                  Top Performers
-                </span>
-                <div className="h-[1px] flex-grow bg-slate-100"></div>
+{bestSellingProducts.length > 0 && (
+        <section className="order-2 md:order-3 max-w-[1400px] mx-auto px-4 pb-6 md:py-8 bg-white overflow-hidden w-full">
+          <div className="relative mb-2 md:mb-16 px-1">
+            <div className="flex flex-col gap-2 md:gap-4">
+              <div className="flex items-center gap-2 md:gap-4 mb-1 md:mb-2">
+
               </div>
 
-              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 md:gap-8">
+              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 md:gap-8">
                 <div className="relative">
-                  <span className="absolute -top-6 md:-top-10 -left-2 md:-left-4 text-6xl md:text-8xl font-black text-slate-50 select-none -z-10 tracking-tighter opacity-70 md:opacity-100">
+                  <span className="absolute -top-4 md:-top-10 -left-1 md:-left-4 text-4xl md:text-8xl font-black text-slate-50 select-none -z-10 tracking-tighter opacity-70 md:opacity-100">
                     TOP
                   </span>
-                  <h2 className="text-5xl md:text-5xl font-black text-slate-900 tracking-[-0.05em] md:tracking-[-0.06em] leading-[0.9] md:leading-[0.8] flex items-center gap-3">
-                    Best  Selling
-                    <TrendingUp size={36} className="text-emerald-500 hidden md:block" />
-                    <span className="absolute -bottom-1 md:-bottom-2 left-0 w-full h-2 md:h-3 bg-emerald-600/10 -rotate-1"></span>
+                  <h2 className="text-2xl md:text-5xl font-black text-slate-900 tracking-[-0.03em] md:tracking-[-0.06em] leading-[1.1] md:leading-[0.8] flex items-center gap-2 md:gap-3">
+                    Best Selling
+                    <TrendingUp size={24} className="text-emerald-500 hidden md:block md:w-[36px] md:h-[36px]" />
+                    <span className="absolute -bottom-1 md:-bottom-2 left-0 w-full h-1.5 md:h-3 bg-emerald-600/10 -rotate-1"></span>
                   </h2>
-                  <p className="mt-4 md:mt-6 text-slate-400 font-medium uppercase text-[9px] md:text-[10px] tracking-[0.2em] md:tracking-[0.3em] max-w-[240px] md:max-w-xs leading-relaxed">
+                  <p className="mt-2 md:mt-6 text-slate-400 font-medium uppercase text-[8px] md:text-[10px] tracking-[0.15em] md:tracking-[0.3em] max-w-[200px] md:max-w-xs leading-relaxed">
                     Our most reordered <br className="hidden md:block" /> wholesale favorites.
                   </p>
                 </div>
@@ -245,7 +241,7 @@ export default function HomePage() {
             </div>
           </div>
 
-     <div className="relative group/swiper -mx-4 px-4 md:mx-0 md:px-0">
+          <div className="relative group/swiper -mx-4 px-4 md:mx-0 md:px-0">
             <Swiper
               modules={[Navigation, Autoplay]}
               spaceBetween={10}
@@ -275,7 +271,7 @@ export default function HomePage() {
       )}
 
       {/* SECTION 2: BROWSE CATEGORIES — mobile: order-3, full 2-column grid, no scrolling. Desktop: order-2, original 4-item row. */}
-      <section className="order-3 md:order-2 max-w-7xl mx-auto px-4 md:px-6 -mt-4 md:-mt-8 relative z-20 w-full">
+      <section className="order-3 md:order-2 max-w-7xl mx-auto px-4 md:px-6 -mt-2 md:-mt-8 relative z-20 w-full">
         <div className="bg-white/90 backdrop-blur-3xl p-4 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.1)] border border-white/60">
 
           {/* MOBILE: 2-column wrapping grid, shows ALL categories, no horizontal scroll */}
