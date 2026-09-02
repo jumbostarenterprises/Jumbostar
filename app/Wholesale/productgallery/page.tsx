@@ -187,19 +187,21 @@ function GalleryContent() {
                         </div>
                     </aside>
 
-                    {/* PRODUCT GRID */}
+               {/* PRODUCT GRID */}
                     <main className="flex-1 pb-40">
                         {loading ? (
-                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-6">
                                 {[...Array(8)].map((_, i) => (
-                                    <div key={i} className="aspect-[3/4] bg-slate-200 animate-pulse rounded-3xl" />
+                                    <div key={i} className="aspect-[3/4] bg-slate-200 animate-pulse rounded-2xl md:rounded-3xl" />
                                 ))}
                             </div>
                         ) : (
                             <>
-                                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+                                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-6">
                                     {products.map((p) => (
-                                        <ProductCard key={p.id} product={p} />
+                                        <div key={p.id} className="w-full">
+                                            <ProductCard product={p} />
+                                        </div>
                                     ))}
                                 </div>
 
