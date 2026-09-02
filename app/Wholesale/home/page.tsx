@@ -207,7 +207,7 @@ export default function HomePage() {
       </section>
 
 {bestSellingProducts.length > 0 && (
-        <section className="order-2 md:order-3 max-w-[1400px] mx-auto px-4 pb-6 md:py-8 bg-white overflow-hidden w-full">
+        <section className="order-2 md:order-3 max-w-[1400px] mx-auto px-4 pb-2 md:py-8 bg-white overflow-hidden w-full">
           <div className="relative mb-2 md:mb-16 px-1">
             <div className="flex flex-col gap-2 md:gap-4">
               <div className="flex items-center gap-2 md:gap-4 mb-1 md:mb-2">
@@ -260,7 +260,7 @@ export default function HomePage() {
               className="!overflow-visible"
             >
               {bestSellingProducts.map((product) => (
-                <SwiperSlide key={product.id} className="pb-4">
+                <SwiperSlide key={product.id} className="pb-2">
                   {/* Ensure the entire product object (with variants) is passed */}
                   <ProductCard product={product} />
                 </SwiperSlide>
@@ -271,11 +271,11 @@ export default function HomePage() {
       )}
 
       {/* SECTION 2: BROWSE CATEGORIES — mobile: order-3, full 2-column grid, no scrolling. Desktop: order-2, original 4-item row. */}
-      <section className="order-3 md:order-2 max-w-7xl mx-auto px-4 md:px-6 -mt-2 md:-mt-8 relative z-20 w-full">
+      <section className="order-3 md:order-2 max-w-7xl mx-auto px-4 md:px-6 -mt-4 md:-mt-8 relative z-20 w-full">
         <div className="bg-white/90 backdrop-blur-3xl p-4 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.1)] border border-white/60">
 
           {/* MOBILE: 2-column wrapping grid, shows ALL categories, no horizontal scroll */}
-          <div className="grid grid-cols-2 gap-4 md:hidden">
+          <div className="grid grid-cols-2 gap-3 md:hidden">
             {categories.map((cat) => (
               <Link
                 key={cat.id}
@@ -284,8 +284,8 @@ export default function HomePage() {
               >
                 <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
-                <div className="p-3 flex flex-col items-center">
-                  <div className="relative h-20 w-full rounded-xl overflow-hidden mb-3 shadow-sm group-hover:shadow-md transition-all duration-500">
+                <div className="p-2.5 flex flex-col items-center">
+                  <div className="relative h-16 w-full rounded-xl overflow-hidden mb-2 shadow-sm group-hover:shadow-md transition-all duration-500">
                     <Image
                       src={cat.image_url || "/placeholder.png"}
                       alt={cat.name}
