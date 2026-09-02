@@ -245,19 +245,20 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="relative group/swiper -mx-4 px-4 md:mx-0 md:px-0">
+     <div className="relative group/swiper -mx-4 px-4 md:mx-0 md:px-0">
             <Swiper
               modules={[Navigation, Autoplay]}
-              spaceBetween={16}
-              slidesPerView={1.25}
+              spaceBetween={10}
+              slidesPerView={2.2}
               navigation={{
                 nextEl: ".next-bestselling",
                 prevEl: ".prev-bestselling",
               }}
               breakpoints={{
-                640: { slidesPerView: 2.2, spaceBetween: 24 },
-                1024: { slidesPerView: 3.2, spaceBetween: 32 },
-                1280: { slidesPerView: 4, spaceBetween: 40 },
+                480: { slidesPerView: 2.8, spaceBetween: 12 },
+                640: { slidesPerView: 3.2, spaceBetween: 16 },
+                1024: { slidesPerView: 4.2, spaceBetween: 24 },
+                1280: { slidesPerView: 5, spaceBetween: 32 },
               }}
               autoplay={{ delay: 5000, disableOnInteraction: true }}
               className="!overflow-visible"
@@ -475,20 +476,21 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div className="relative group/swiper -mx-4 px-4 md:mx-0 md:px-0">
+<div className="relative group/swiper -mx-4 px-4 md:mx-0 md:px-0">
           {preferredProducts.length > 0 ? (
             <Swiper
               modules={[Navigation, Autoplay]}
-              spaceBetween={16}
-              slidesPerView={1.25}
+              spaceBetween={10}
+              slidesPerView={2.2}
               navigation={{
                 nextEl: ".next-trending",
                 prevEl: ".prev-trending",
               }}
               breakpoints={{
-                640: { slidesPerView: 2.2, spaceBetween: 24 },
-                1024: { slidesPerView: 3.2, spaceBetween: 32 },
-                1280: { slidesPerView: 4, spaceBetween: 40 },
+                480: { slidesPerView: 2.8, spaceBetween: 12 },
+                640: { slidesPerView: 3.2, spaceBetween: 16 },
+                1024: { slidesPerView: 4.2, spaceBetween: 24 },
+                1280: { slidesPerView: 5, spaceBetween: 32 },
               }}
               autoplay={{ delay: 5000, disableOnInteraction: true }}
               className="!overflow-visible"

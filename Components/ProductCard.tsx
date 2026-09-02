@@ -18,7 +18,7 @@ const getUserId = async () => {
 
 // Shared "torn ticket" clip — reused on the price tag and the Buy Now
 // button so the two actions read as one continuous shipping-label motif.
-const TAG_CLIP = "polygon(0 0, 100% 0, 100% 100%, 12px 100%, 0 calc(100% - 12px))";
+const TAG_CLIP = "polygon(0 0, 100% 0, 100% 100%, 10px 100%, 0 calc(100% - 10px))";
 
 export default function ProductCard({
   product,
@@ -247,7 +247,7 @@ export default function ProductCard({
   return (
     <Link
       href={`/Wholesale/products/${product.id}`}
-      className="group bg-white rounded-[1.5rem] md:rounded-[2rem] overflow-hidden transition-all duration-500 hover:shadow-xl border border-slate-100 flex flex-col h-full relative cursor-pointer"
+      className="group bg-white rounded-xl md:rounded-[2rem] overflow-hidden transition-all duration-300 hover:shadow-xl border border-slate-100 flex flex-col h-full relative cursor-pointer"
     >
       <Toaster position="bottom-right" />
 
@@ -255,25 +255,25 @@ export default function ProductCard({
       <div className="relative aspect-square overflow-hidden bg-[#F4F5F7] group/img">
 
         {/* Rubber-stamp stock & best seller indicators */}
-        <div className="absolute top-2.5 left-2.5 z-20 flex flex-col gap-1.5 items-start">
+        <div className="absolute top-1.5 left-1.5 md:top-2.5 md:left-2.5 z-20 flex flex-col gap-1 items-start">
           <div
-            className={`px-2 py-0.5 rounded-full border border-dashed flex items-center gap-1 bg-white/90 backdrop-blur-sm -rotate-6 ${
+            className={`px-1.5 py-0.2 md:px-2 md:py-0.5 rounded-full border border-dashed flex items-center gap-1 bg-white/90 backdrop-blur-sm -rotate-6 ${
               hasAnyStock && !isOutOfStock
                 ? "border-green-600 text-green-700"
                 : "border-red-500 text-red-600"
             }`}
           >
-            <span className="text-[7px] md:text-[8px] font-mono font-bold uppercase tracking-wider">
-              {hasAnyStock && !isOutOfStock ? `Stock · ${stock}` : "Out of stock"}
+            <span className="text-[6px] md:text-[8px] font-mono font-bold uppercase tracking-wider">
+              {hasAnyStock && !isOutOfStock ? `Stock · ${stock}` : "OOS"}
             </span>
           </div>
 
           {/* Best Seller Badge */}
           {product.is_best_selling && (
-            <div className="px-2 py-0.5 rounded-full border border-amber-500 flex items-center gap-1 bg-amber-50/90 backdrop-blur-sm text-amber-800 rotate-3 shadow-sm">
-              <Flame size={10} className="text-amber-600 fill-amber-500" />
-              <span className="text-[7px] md:text-[8px] font-mono font-black uppercase tracking-wider">
-                Best Seller
+            <div className="px-1.5 py-0.2 md:px-2 md:py-0.5 rounded-full border border-amber-500 flex items-center gap-0.5 md:gap-1 bg-amber-50/90 backdrop-blur-sm text-amber-800 rotate-3 shadow-sm">
+              <Flame size={8} className="text-amber-600 fill-amber-500 md:w-[10px] md:h-[10px]" />
+              <span className="text-[6px] md:text-[8px] font-mono font-black uppercase tracking-wider">
+                Best
               </span>
             </div>
           )}
@@ -284,7 +284,7 @@ export default function ProductCard({
           onClick={toggleWishlist}
           disabled={!hasAnyStock}
           title={!hasAnyStock ? "Out of stock" : isInWishlist ? "Remove from wishlist" : "Add to wishlist"}
-          className={`absolute top-2.5 right-2.5 z-20 h-8 w-8 md:h-9 md:w-9 rounded-full flex items-center justify-center transition-all ${
+          className={`absolute top-1.5 right-1.5 md:top-2.5 md:right-2.5 z-20 h-6 w-6 md:h-9 md:w-9 rounded-full flex items-center justify-center transition-all ${
             !hasAnyStock
               ? "bg-white/60 text-slate-300 cursor-not-allowed"
               : isInWishlist
@@ -292,7 +292,7 @@ export default function ProductCard({
               : "bg-white/80 text-slate-400 hover:text-slate-900"
           }`}
         >
-          <Heart size={14} fill={isInWishlist && hasAnyStock ? "currentColor" : "none"} />
+          <Heart size={12} className="md:w-[14px] md:h-[14px]" fill={isInWishlist && hasAnyStock ? "currentColor" : "none"} />
         </button>
 
         {displayImage ? (
@@ -300,44 +300,44 @@ export default function ProductCard({
             src={displayImage}
             alt={product.name}
             fill
-            className="object-contain p-6 md:p-9 transition-transform duration-700 group-hover:scale-105"
+            className="object-contain p-3 md:p-9 transition-transform duration-700 group-hover:scale-105"
           />
         ) : (
           <div className="h-full flex items-center justify-center text-slate-200">
-            <ImageOff size={30} />
+            <ImageOff size={20} className="md:w-[30px] md:h-[30px]" />
           </div>
         )}
       </div>
 
       {/* 2. INFO ZONE */}
-      <div className="px-3 md:px-4 pt-3 flex flex-col flex-grow">
-        <div className="flex items-center gap-1.5 mb-1">
-          <span className="h-px w-3 bg-red-600" />
-          <span className="text-[7px] md:text-[8px] font-mono font-bold text-red-600 uppercase tracking-widest truncate">
+      <div className="px-2.5 md:px-4 pt-2 md:pt-3 flex flex-col flex-grow">
+        <div className="flex items-center gap-1 mb-0.5 md:mb-1">
+          <span className="h-px w-2 md:w-3 bg-red-600" />
+          <span className="text-[6px] md:text-[8px] font-mono font-bold text-red-600 uppercase tracking-widest truncate">
             {product.brand || "JumboStar"}
           </span>
         </div>
 
-        <h3 className="text-[11px] md:text-sm font-black text-slate-900 mb-2 line-clamp-2 leading-tight uppercase tracking-tight">
+        <h3 className="text-[10px] md:text-sm font-black text-slate-900 mb-1.5 md:mb-2 line-clamp-2 leading-tight uppercase tracking-tight">
           {product.name}
         </h3>
 
         {hasAnyStock && isOutOfStock && (
-          <div className="mb-2">
-            <span className="inline-flex items-center gap-1 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-orange-500 bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-md">
+          <div className="mb-1.5 md:mb-2">
+            <span className="inline-flex items-center gap-1 text-[7px] md:text-[9px] font-black uppercase tracking-widest text-orange-500 bg-orange-50 border border-orange-100 px-1.5 py-0.2 md:px-2 md:py-0.5 rounded-md">
               <span className="h-1 w-1 rounded-full bg-orange-400 inline-block" />
-              This variant unavailable
+              Unavailable
             </span>
           </div>
         )}
 
         {/* Variant selector + ledger price tag, side by side */}
-        <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="flex items-start justify-between gap-1 md:gap-2 mb-2 md:mb-3">
           <div className="min-w-0 flex-1">
-            <p className="text-[7px] md:text-[8px] font-mono font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+            <p className="text-[6px] md:text-[8px] font-mono font-bold text-slate-400 uppercase tracking-widest mb-1">
               Batch
             </p>
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+            <div className="flex gap-1 overflow-x-auto no-scrollbar pb-0.5">
               {variants.map((v: any, i: number) => {
                 const variantOOS = (v.stock || 0) <= 0;
                 return (
@@ -345,7 +345,7 @@ export default function ProductCard({
                     key={v.id}
                     onClick={(e) => handleVariantClick(e, i)}
                     title={variantOOS ? "Out of stock" : ""}
-                    className={`whitespace-nowrap px-2 py-1 rounded-md text-[8px] md:text-[9px] font-mono font-bold uppercase tracking-wide transition-all shrink-0 relative ${
+                    className={`whitespace-nowrap px-1.5 py-0.5 md:px-2 md:py-1 rounded text-[7px] md:text-[9px] font-mono font-bold uppercase tracking-wide transition-all shrink-0 relative ${
                       activeIdx === i
                         ? variantOOS
                           ? "bg-slate-200 text-slate-400"
@@ -357,7 +357,7 @@ export default function ProductCard({
                   >
                     {v.variant}{v.unit}
                     {variantOOS && (
-                      <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 bg-red-400 rounded-full" />
+                      <span className="absolute -top-0.5 -right-0.5 h-1 w-1 md:h-1.5 md:w-1.5 bg-red-400 rounded-full" />
                     )}
                   </button>
                 );
@@ -366,27 +366,27 @@ export default function ProductCard({
           </div>
 
           <div
-            className="shrink-0 bg-slate-900 text-white px-2.5 pt-1.5 pb-2 md:px-3 md:pt-2 md:pb-2.5"
+            className="shrink-0 bg-slate-900 text-white px-2 pt-1 pb-1.5 md:px-3 md:pt-2 md:pb-2.5"
             style={{ clipPath: TAG_CLIP }}
           >
-            <p className="text-xs md:text-base font-mono font-bold leading-none tabular-nums">₹{wholesale}</p>
-            <p className="text-[7px] md:text-[8px] font-mono text-slate-400 line-through leading-none mt-1 tabular-nums">₹{mrp}</p>
+            <p className="text-[10px] md:text-base font-mono font-bold leading-none tabular-nums">₹{wholesale}</p>
+            <p className="text-[6px] md:text-[8px] font-mono text-slate-400 line-through leading-none mt-0.5 md:mt-1 tabular-nums">₹{mrp}</p>
           </div>
         </div>
 
         {/* Perforated tear line — the card's signature detail */}
         <div className="relative border-t border-dashed border-slate-200">
-          <span className="absolute -left-[22px] top-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-[#F8FAFC]" />
-          <span className="absolute -right-[22px] top-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-[#F8FAFC]" />
+          <span className="absolute -left-[18px] md:-left-[22px] top-1/2 -translate-y-1/2 h-3 w-3 md:h-4 md:w-4 rounded-full bg-[#F8FAFC]" />
+          <span className="absolute -right-[18px] md:-right-[22px] top-1/2 -translate-y-1/2 h-3 w-3 md:h-4 md:w-4 rounded-full bg-[#F8FAFC]" />
         </div>
 
         {/* 3. ACTION ZONE */}
-        <div className="grid grid-cols-2 gap-1.5 py-3 mt-auto">
+        <div className="grid grid-cols-2 gap-1 py-2 md:py-3 mt-auto">
           <button
             onClick={(e) => handleActionClick(e, "cart")}
             disabled={isOutOfStock}
             title={isOutOfStock ? "Out of stock" : "Add to cart"}
-            className={`h-8 md:h-10 rounded-lg flex items-center justify-center gap-1 text-[8px] md:text-[9px] font-mono font-bold uppercase tracking-widest transition-all border ${
+            className={`h-7 md:h-10 rounded-md md:rounded-lg flex items-center justify-center gap-0.5 md:gap-1 text-[7px] md:text-[9px] font-mono font-bold uppercase tracking-widest transition-all border ${
               isOutOfStock
                 ? "bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed"
                 : isInCart
@@ -394,20 +394,20 @@ export default function ProductCard({
                 : "bg-white text-slate-900 border-slate-200 hover:border-slate-900"
             }`}
           >
-            <ShoppingCart size={12} /> {isInCart ? "In cart" : "Cart"}
+            <ShoppingCart size={10} className="md:w-[12px] md:h-[12px]" /> {isInCart ? "In cart" : "Cart"}
           </button>
           <button
             onClick={(e) => handleActionClick(e, "buy")}
             disabled={isOutOfStock}
             title={isOutOfStock ? "Out of stock" : "Buy now"}
             style={!isOutOfStock ? { clipPath: TAG_CLIP } : undefined}
-            className={`h-8 md:h-10 flex items-center justify-center gap-1 text-[8px] md:text-[9px] font-mono font-bold uppercase tracking-widest transition-all ${
+            className={`h-7 md:h-10 flex items-center justify-center gap-0.5 md:gap-1 text-[7px] md:text-[9px] font-mono font-bold uppercase tracking-widest transition-all ${
               isOutOfStock
-                ? "bg-slate-100 text-slate-300 rounded-lg cursor-not-allowed"
+                ? "bg-slate-100 text-slate-300 rounded-md md:rounded-lg cursor-not-allowed"
                 : "bg-red-600 text-white group-hover:bg-slate-900"
             }`}
           >
-            <Zap size={12} fill="currentColor" /> Buy now
+            <Zap size={10} className="md:w-[12px] md:h-[12px]" fill="currentColor" /> Buy
           </button>
         </div>
       </div>
