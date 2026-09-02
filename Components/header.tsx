@@ -1,11 +1,11 @@
 "use client";
-
+import { useRouter, usePathname } from 'next/navigation';
 import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect } from "react";
-import { usePathname } from "next/navigation";
 import AuthModal from "./AuthModal";
 import { supabase } from "@/lib/supabaseClient";
+import SearchModal from "@/Components/search";
 import {
   ShoppingCart,
   Heart,
@@ -16,7 +16,7 @@ import {
   LayoutGrid,
   Home,
   ShoppingBag,
-  Coins
+  Coins, Search,
 } from "lucide-react";
 
 import { ReactNode } from "react";
@@ -36,8 +36,9 @@ export default function Header() {
   const [cartCount, setCartCount] = useState(0);
   const [wishlistCount, setWishlistCount] = useState(0);
   const [coins, setCoins] = useState(0);
-
+  const router = useRouter();
   const pathname = usePathname();
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   useEffect(() => {
     const checkUser = () => {
@@ -151,15 +152,26 @@ export default function Header() {
                       {coins}
                     </span>
                   </Link>
+                  {/* Search Trigger */}
+                  <button
+                    onClick={() => router.push("/Wholesale/search")}
+                    className={`flex items-center justify-center p-2 rounded-full transition-all ${pathname === "/Wholesale/search"
+                        ? "bg-red-50 text-red-600"
+                        : "text-slate-600 hover:bg-red-50 hover:text-red-600"
+                      }`}
+                    aria-label="Search products"
+                  >
+                    <Search size={22} />
+                  </button>
 
+                  <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
                   {/* Desktop Wishlist */}
                   <Link
                     href="/Wholesale/wishlist"
-                    className={`hidden sm:flex relative p-2 rounded-full transition-all ${
-                      pathname === "/Wholesale/wishlist"
+                    className={`hidden sm:flex relative p-2 rounded-full transition-all ${pathname === "/Wholesale/wishlist"
                         ? "bg-red-50 text-red-600"
                         : "text-slate-600 hover:bg-red-50 hover:text-red-600"
-                    }`}
+                      }`}
                   >
                     <Heart size={22} />
                     {wishlistCount > 0 && (
@@ -172,11 +184,10 @@ export default function Header() {
                   {/* Desktop Cart */}
                   <Link
                     href="/Wholesale/cart"
-                    className={`hidden sm:flex relative p-2 rounded-full transition-all ${
-                      pathname === "/Wholesale/cart"
+                    className={`hidden sm:flex relative p-2 rounded-full transition-all ${pathname === "/Wholesale/cart"
                         ? "bg-red-50 text-red-600"
                         : "text-slate-600 hover:bg-red-50 hover:text-red-600"
-                    }`}
+                      }`}
                   >
                     <ShoppingCart size={22} />
                     {cartCount > 0 && (
@@ -255,14 +266,14 @@ export default function Header() {
 
       {/* STICKY FIXED ULTRA-COMPACT RIGHT-CORNER COIN PERK BADGE (HOME PAGE ONLY) */}
 
-        <div className="fixed top-[72px] md:top-[88px] right-3 sm:right-6 z-40 pointer-events-none">
-          <div className="pointer-events-auto flex items-center gap-2 py-1.5 px-3.5 bg-white/80 backdrop-blur-md border border-slate-200/60 shadow-sm rounded-full">
-            <Coins size={14} className="text-amber-500 shrink-0" />
-            <span className="text-xs font-medium text-slate-700 tracking-tight whitespace-nowrap">
-              <strong className="text-amber-600 font-bold">Coin Perk:</strong> 1 coin per ₹1,000 spent
-            </span>
-          </div>
+      <div className="fixed top-[72px] md:top-[88px] right-3 sm:right-6 z-40 pointer-events-none">
+        <div className="pointer-events-auto flex items-center gap-2 py-1.5 px-3.5 bg-white/80 backdrop-blur-md border border-slate-200/60 shadow-sm rounded-full">
+          <Coins size={14} className="text-amber-500 shrink-0" />
+          <span className="text-xs font-medium text-slate-700 tracking-tight whitespace-nowrap">
+            <strong className="text-amber-600 font-bold">Coin Perk:</strong> 1 coin per ₹1,000 spent
+          </span>
         </div>
+      </div>
 
       {/* MOBILE BOTTOM NAVIGATION */}
       <nav
@@ -343,11 +354,10 @@ function NavLink({ href, icon, label, active }: { href: string; icon: React.Reac
   return (
     <Link
       href={href}
-      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full transition-all duration-200 ${
-        active
+      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full transition-all duration-200 ${active
           ? "bg-white text-red-600 shadow-sm"
           : "text-slate-600 hover:text-red-600 hover:bg-white"
-      }`}
+        }`}
     >
       <span className={active ? "text-red-500" : "text-slate-400"}>{icon}</span>
       {label}
@@ -367,9 +377,8 @@ function BottomTab({ href, icon, label, count = 0, active }: NavProps) {
   return (
     <Link
       href={href}
-      className={`flex flex-col items-center gap-1 transition-colors ${
-        active ? "text-red-600" : "text-slate-400 hover:text-red-600"
-      }`}
+      className={`flex flex-col items-center gap-1 transition-colors ${active ? "text-red-600" : "text-slate-400 hover:text-red-600"
+        }`}
     >
       <div className="relative">
         {icon}

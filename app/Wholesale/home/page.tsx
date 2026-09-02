@@ -101,11 +101,28 @@ export default function HomePage() {
     </div>
   );
 
+  // Precompute the "top picks" category list used on DESKTOP only
+  // (3 most recent + "Other" pinned to the end)
+  const otherCategory = categories.find(cat =>
+    cat.name.toLowerCase() === 'other' || cat.name.toLowerCase() === 'others'
+  );
+  const recentCategories = categories
+    .filter(cat => cat.id !== otherCategory?.id)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const desktopCategories = recentCategories.slice(0, 3);
+  if (otherCategory) {
+    desktopCategories.push(otherCategory);
+  } else if (recentCategories[3]) {
+    desktopCategories.push(recentCategories[3]);
+  }
+
   return (
-    <main className="bg-white">
+    // flex + order-* below lets us reorder sections on mobile only,
+    // while desktop (md:) keeps the original document order.
+    <main className="bg-white flex flex-col">
 
       {/* SECTION 1: PREMIUM HERO SLIDER */}
-      <section className="relative h-[450px] md:h-[550px] overflow-hidden bg-slate-900">
+      <section className="order-1 md:order-1 relative h-[190px] sm:h-[240px] md:h-[550px] overflow-hidden bg-slate-900">
         <Swiper
           effect={"fade"}
           speed={1000}
@@ -133,16 +150,16 @@ export default function HomePage() {
                     priority
                     className="object-cover transition-transform duration-[10s] scale-100 group-hover:scale-110"
                   />
-                  {/* Multi-layered overlay for better text readability */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-slate-950/80 via-slate-900/40 to-transparent" />
-                  <div className="absolute inset-0 bg-slate-900/10 backdrop-contrast-125" />
+                  {/* Gradient overlay only needed on desktop where text sits on top of the image */}
+                  <div className="hidden md:block absolute inset-0 bg-gradient-to-r from-slate-950/80 via-slate-900/40 to-transparent" />
+                  <div className="hidden md:block absolute inset-0 bg-slate-900/10 backdrop-contrast-125" />
                 </div>
 
-                {/* Content Wrapper */}
-                <div className="relative max-w-7xl mx-auto px-6 md:px-12 w-full">
+                {/* Content Wrapper — hidden on mobile, image only. Shown from md up. */}
+                <div className="hidden md:block relative max-w-7xl mx-auto px-6 md:px-12 w-full">
                   <div className="max-w-4xl">
 
-                    {/* Animated Badge - Hidden on very small screens to save space */}
+                    {/* Animated Badge */}
                     <div className="hidden xs:inline-flex items-center gap-2 bg-white/10 backdrop-blur-md border border-white/20 px-4 py-1.5 rounded-full mb-4 md:mb-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
                       <span className="relative flex h-2 w-2">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -153,18 +170,17 @@ export default function HomePage() {
                       </span>
                     </div>
 
-                    {/* Headline with High Contrast - Responsive Sizing */}
+                    {/* Headline */}
                     <h1 className="text-3xl sm:text-4xl md:text-7xl font-extrabold text-white leading-[1.1] tracking-tight mb-4 md:mb-6 animate-in fade-in slide-in-from-bottom-6 duration-1000 delay-100">
                       {banner.title}
                     </h1>
 
-                    {/* Refined Description - Line clamped on mobile to prevent overlap */}
+                    {/* Description */}
                     <p className="max-w-xs md:max-w-md text-slate-200 text-sm md:text-lg mb-6 md:mb-10 leading-relaxed drop-shadow-md line-clamp-3 md:line-clamp-none animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-200">
                       {banner.short_description}
                     </p>
 
-                    {/* Action Buttons - Stacked on Mobile, Row on Desktop */}
-                    {/* Action Buttons - Forced onto the same line */}
+                    {/* Action Buttons */}
                     <div className="flex flex-row items-center gap-2 md:gap-4 mt-6 md:mt-10 animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
                       <Link
                         href="/Wholesale/productgallery"
@@ -189,72 +205,10 @@ export default function HomePage() {
           ))}
         </Swiper>
       </section>
-      {/* SECTION 2: BROWSE CATEGORIES */}
-   {/* SECTION 2: BROWSE CATEGORIES */}
-<section className="max-w-7xl mx-auto px-4 md:px-6 -mt-16 md:-mt-8 relative z-20">
-  <div className="bg-white/90 backdrop-blur-3xl p-4 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.1)] border border-white/60">
 
-    <div className="flex flex-nowrap overflow-x-auto gap-4 md:grid md:grid-cols-4 md:gap-6 pb-2 md:pb-0 snap-x snap-mandatory scroll-smooth [ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {(() => {
-        // 1. Identify "Other" category
-        const otherCategory = categories.find(cat => 
-          cat.name.toLowerCase() === 'other' || cat.name.toLowerCase() === 'others'
-        );
-
-        // 2. Filter out "Other" and sort by most recent (using created_at or id)
-        const recentCategories = categories
-          .filter(cat => cat.id !== otherCategory?.id)
-          // Sort descending: change 'created_at' to 'id' if you don't have a date string
-.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        // 3. Take top 3 recent + append "Other" at the end
-        const displayCategories = recentCategories.slice(0, 3);
-        
-        if (otherCategory) {
-          displayCategories.push(otherCategory);
-        } else if (recentCategories[3]) {
-          // If no "Other" exists, just take the 4th most recent
-          displayCategories.push(recentCategories[3]);
-        }
-
-        return displayCategories.map((cat) => (
-          <Link
-            key={cat.id}
-            href={`/Wholesale/productgallery?category=${cat.id}`}
-            className="group relative flex-shrink-0 w-[130px] md:w-auto snap-center overflow-hidden rounded-2xl md:rounded-3xl bg-slate-50 transition-all duration-500 hover:bg-white hover:shadow-2xl hover:shadow-red-500/10 hover:-translate-y-1"
-          >
-            <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-
-            <div className="p-3 md:p-4 flex flex-col items-center">
-              <div className="relative h-20 w-full md:h-28 rounded-xl md:rounded-2xl overflow-hidden mb-3 md:mb-4 shadow-sm group-hover:shadow-md transition-all duration-500">
-                <Image
-                  src={cat.image_url || "/placeholder.png"}
-                  alt={cat.name}
-                  fill
-                  className="object-cover transition-transform duration-700 group-hover:scale-110"
-                />
-                <div className="absolute inset-0 ring-1 ring-inset ring-black/5 rounded-xl md:rounded-2xl" />
-              </div>
-
-              <div className="text-center space-y-1">
-                <h3 className="text-[10px] md:text-[11px] font-bold text-slate-900 uppercase tracking-[0.12em] transition-colors group-hover:text-red-600 truncate w-full px-1">
-                  {cat.name}
-                </h3>
-                <p className="hidden md:block text-[8px] font-medium text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-1 group-hover:translate-y-0">
-                  Browse Collection
-                </p>
-              </div>
-            </div>
-
-            <div className="absolute bottom-0 left-0 h-[2px] w-0 bg-red-600 transition-all duration-500 group-hover:w-full" />
-          </Link>
-        ));
-      })()}
-    </div>
-  </div>
-</section>
-      {/* SECTION 3: BEST SELLING — only renders when at least one product is flagged */}
+      {/* SECTION 3: BEST SELLING — mobile shows this right after the banner (order-2), desktop keeps its original spot (order-3) */}
       {bestSellingProducts.length > 0 && (
-        <section className="max-w-[1400px] mx-auto px-4 py-8 bg-white overflow-hidden">
+        <section className="order-2 md:order-3 max-w-[1400px] mx-auto px-4 py-8 bg-white overflow-hidden w-full">
           <div className="relative mb-8 md:mb-16 px-1">
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3 md:gap-4 mb-2">
@@ -270,7 +224,7 @@ export default function HomePage() {
                     TOP
                   </span>
                   <h2 className="text-5xl md:text-5xl font-black text-slate-900 tracking-[-0.05em] md:tracking-[-0.06em] leading-[0.9] md:leading-[0.8] flex items-center gap-3">
-                    Best <br className="md:hidden" /> Selling
+                    Best  Selling
                     <TrendingUp size={36} className="text-emerald-500 hidden md:block" />
                     <span className="absolute -bottom-1 md:-bottom-2 left-0 w-full h-2 md:h-3 bg-emerald-600/10 -rotate-1"></span>
                   </h2>
@@ -319,8 +273,83 @@ export default function HomePage() {
         </section>
       )}
 
+      {/* SECTION 2: BROWSE CATEGORIES — mobile: order-3, full 2-column grid, no scrolling. Desktop: order-2, original 4-item row. */}
+      <section className="order-3 md:order-2 max-w-7xl mx-auto px-4 md:px-6 -mt-4 md:-mt-8 relative z-20 w-full">
+        <div className="bg-white/90 backdrop-blur-3xl p-4 md:p-8 rounded-[2rem] md:rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.1)] border border-white/60">
+
+          {/* MOBILE: 2-column wrapping grid, shows ALL categories, no horizontal scroll */}
+          <div className="grid grid-cols-2 gap-4 md:hidden">
+            {categories.map((cat) => (
+              <Link
+                key={cat.id}
+                href={`/Wholesale/productgallery?category=${cat.id}`}
+                className="group relative w-full overflow-hidden rounded-2xl bg-slate-50 transition-all duration-500 hover:bg-white hover:shadow-2xl hover:shadow-red-500/10 hover:-translate-y-1"
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                <div className="p-3 flex flex-col items-center">
+                  <div className="relative h-20 w-full rounded-xl overflow-hidden mb-3 shadow-sm group-hover:shadow-md transition-all duration-500">
+                    <Image
+                      src={cat.image_url || "/placeholder.png"}
+                      alt={cat.name}
+                      fill
+                      className="object-cover transition-transform duration-700 group-hover:scale-110"
+                    />
+                    <div className="absolute inset-0 ring-1 ring-inset ring-black/5 rounded-xl" />
+                  </div>
+
+                  <div className="text-center space-y-1">
+                    <h3 className="text-[10px] font-bold text-slate-900 uppercase tracking-[0.12em] transition-colors group-hover:text-red-600 truncate w-full px-1">
+                      {cat.name}
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="absolute bottom-0 left-0 h-[2px] w-0 bg-red-600 transition-all duration-500 group-hover:w-full" />
+              </Link>
+            ))}
+          </div>
+
+          {/* DESKTOP: original top-3-recent + "Other" row, 4 columns, unchanged design */}
+          <div className="hidden md:grid md:grid-cols-4 md:gap-6">
+            {desktopCategories.map((cat) => (
+              <Link
+                key={cat.id}
+                href={`/Wholesale/productgallery?category=${cat.id}`}
+                className="group relative overflow-hidden rounded-3xl bg-slate-50 transition-all duration-500 hover:bg-white hover:shadow-2xl hover:shadow-red-500/10 hover:-translate-y-1"
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                <div className="p-4 flex flex-col items-center">
+                  <div className="relative h-28 w-full rounded-2xl overflow-hidden mb-4 shadow-sm group-hover:shadow-md transition-all duration-500">
+                    <Image
+                      src={cat.image_url || "/placeholder.png"}
+                      alt={cat.name}
+                      fill
+                      className="object-cover transition-transform duration-700 group-hover:scale-110"
+                    />
+                    <div className="absolute inset-0 ring-1 ring-inset ring-black/5 rounded-2xl" />
+                  </div>
+
+                  <div className="text-center space-y-1">
+                    <h3 className="text-[11px] font-bold text-slate-900 uppercase tracking-[0.12em] transition-colors group-hover:text-red-600 truncate w-full px-1">
+                      {cat.name}
+                    </h3>
+                    <p className="hidden md:block text-[8px] font-medium text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-1 group-hover:translate-y-0">
+                      Browse Collection
+                    </p>
+                  </div>
+                </div>
+
+                <div className="absolute bottom-0 left-0 h-[2px] w-0 bg-red-600 transition-all duration-500 group-hover:w-full" />
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* SECTION 4: SUBCATEGORY EXPLORER */}
-      <section className="bg-[#f8fafc] py-1 overflow-hidden">
+      <section className="order-4 md:order-4 bg-[#f8fafc] py-1 overflow-hidden w-full">
         <div className="max-w-9xl mx-auto px-6">
 
           {categories.map((category) => {
@@ -408,8 +437,9 @@ export default function HomePage() {
           })}
         </div>
       </section>
+
       {/* SECTION 3B: PREFERRED SELECTIONS */}
-      <section className="max-w-[1400px] mx-auto px-4 py-8 bg-white overflow-hidden">
+      <section className="order-5 md:order-5 max-w-[1400px] mx-auto px-4 py-8 bg-white overflow-hidden w-full">
         <div className="relative mb-8 md:mb-16 px-1">
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-3 md:gap-4 mb-2">
@@ -425,7 +455,7 @@ export default function HomePage() {
                   BEST
                 </span>
                 <h2 className="text-5xl md:text-5xl font-black text-slate-900 tracking-[-0.05em] md:tracking-[-0.06em] leading-[0.9] md:leading-[0.8]">
-                  Preferred <br className="md:hidden" /> Items
+                  Preferred Items
                   <span className="absolute -bottom-1 md:-bottom-2 left-0 w-full h-2 md:h-3 bg-red-600/10 -rotate-1"></span>
                 </h2>
                 <p className="mt-4 md:mt-6 text-slate-400 font-medium uppercase text-[9px] md:text-[10px] tracking-[0.2em] md:tracking-[0.3em] max-w-[240px] md:max-w-xs leading-relaxed">
@@ -480,7 +510,7 @@ export default function HomePage() {
 
 
       {/* SECTION 5: Discount*/}
-      <section className="max-w-[1400px] mx-auto px-2">
+      <section className="order-6 md:order-6 max-w-[1400px] mx-auto px-2 w-full">
         {/* HEADER AREA: SEASONAL / DISCOUNT SECTION */}
         <div className="relative mb-12 px-4">
 
@@ -558,7 +588,7 @@ export default function HomePage() {
       </section>
 
       {/* SECTION 6: TRUST FEATURES - EDITORIAL REDESIGN */}
-      <section className="max-w-10xl mx-auto px-6 py-24">
+      <section className="order-7 md:order-7 max-w-10xl mx-auto px-6 py-24 w-full">
         <div className="relative">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-16 gap-8 border-b border-slate-100 pb-12">
             <div className="max-w-xl">

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import Image from "next/image";
 import Link from "next/link";
-import { Trash2, Minus, Plus, ShoppingBag, ArrowRight, Loader2, PackageCheck, LockKeyhole, Tag, AlertCircle, Coins } from "lucide-react";
+import { Trash2, Minus, Plus, ShoppingBag, ArrowRight, Loader2, PackageCheck, LockKeyhole, Tag, AlertCircle, Coins, Ban } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 import AuthModal from "@/Components/AuthModal";
 
@@ -26,6 +26,7 @@ interface ProductVariant {
   products: {
     name: string;
     brand: string;
+    category_id: string | null;
     product_images: { image_url: string }[];
   };
 }
@@ -46,6 +47,12 @@ const formatCurrency = (amount: number): string => {
   });
 };
 
+// Category under which coin redemption is disabled entirely — "Oil, Ghee and Vanaspathi"
+const COIN_RESTRICTED_CATEGORY_ID = "6b040c59-6099-4e1a-952e-bddd71df7bfb";
+
+// Hard ceiling on how many coins can be redeemed per order, regardless of wallet balance
+const MAX_COINS_PER_ORDER = 5;
+
 export default function CartPage() {
   const router = useRouter();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -56,8 +63,11 @@ export default function CartPage() {
   const [platformCharge] = useState<number>(80);
   const [handlingFees, setHandlingFees] = useState<number>(0);
 
-  // Loyalty coins wallet balance (1 coin = ₹1). Applied automatically — no manual entry.
+  // Loyalty coins wallet balance (1 coin = ₹1).
   const [availableCoins, setAvailableCoins] = useState<number>(0);
+
+  // Coins the user has manually chosen to redeem on this order (not auto-applied anymore)
+  const [coinsToRedeem, setCoinsToRedeem] = useState<number>(0);
 
   const MIN_ORDER_VALUE = 1500;
 
@@ -96,7 +106,7 @@ export default function CartPage() {
             min_quantity,
             stock,
             variant_tiers (*),
-            products (name, brand, product_images (image_url))
+            products (name, brand, category_id, product_images (image_url))
           )
         `)
         .eq("user_id", userId);
@@ -193,12 +203,25 @@ export default function CartPage() {
   // Check if any cart item is out of stock
   const hasOutOfStockItems = cartItems.some(item => (item.product_variants?.stock || 0) <= 0);
 
+  // Does the cart contain anything from the coin-restricted category?
+  const hasRestrictedCategoryItem = cartItems.some(
+    (item) => item.product_variants?.products?.category_id === COIN_RESTRICTED_CATEGORY_ID
+  );
+
   // Total payable before coins are applied
   const preDiscountTotal = Math.max(0, subtotal + transportCharge + handlingFees);
 
-  // Coins are applied automatically — as many as the wallet has, capped so the
-  // total never goes negative. 1 coin = ₹1.
-  const coinsApplied = Math.max(0, Math.min(availableCoins, Math.floor(preDiscountTotal)));
+  // The actual ceiling the user is allowed to type: capped by wallet balance,
+  // the per-order max of 5, the order total itself, and zeroed out completely
+  // if the cart holds a restricted-category product.
+  const maxRedeemable = hasRestrictedCategoryItem
+    ? 0
+    : Math.max(0, Math.min(availableCoins, MAX_COINS_PER_ORDER, Math.floor(preDiscountTotal)));
+
+  // Coins actually applied to the total — re-clamped here as a safety net in
+  // case maxRedeemable shrinks (e.g. an item from the restricted category
+  // gets added after the user already typed a number).
+  const coinsApplied = Math.max(0, Math.min(coinsToRedeem, maxRedeemable));
 
   // Kept as exact decimal math all the way through — no intermediate rounding —
   // so this always equals the sum of the line items shown above it, minus coins.
@@ -206,7 +229,38 @@ export default function CartPage() {
 
   const isCheckoutDisabled = isBelowMinimum || cartItems.length === 0 || hasOutOfStockItems;
 
-  const handleProceedToCheckout = () => {
+  // Keep the manually-entered coin count valid whenever the cart or wallet changes
+  // (e.g. a restricted item gets added, or the wallet balance updates).
+  useEffect(() => {
+    setCoinsToRedeem((prev) => Math.max(0, Math.min(prev, maxRedeemable)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maxRedeemable]);
+
+  const handleCoinsInputChange = (rawValue: string) => {
+    if (rawValue === "") {
+      setCoinsToRedeem(0);
+      return;
+    }
+    const parsed = parseInt(rawValue, 10);
+    if (isNaN(parsed)) return;
+
+    if (parsed > maxRedeemable) {
+      // Hard-block anything above the allowed ceiling — don't let it type through
+      if (hasRestrictedCategoryItem) {
+        toast.error("Coins can't be used on orders with Oil, Ghee & Vanaspathi items");
+      } else if (parsed > availableCoins) {
+        toast.error(`You only have ${availableCoins} coin${availableCoins === 1 ? "" : "s"} available`);
+      } else {
+        toast.error(`You can redeem a maximum of ${MAX_COINS_PER_ORDER} coins per order`);
+      }
+      setCoinsToRedeem(maxRedeemable);
+      return;
+    }
+
+    setCoinsToRedeem(Math.max(0, parsed));
+  };
+
+const handleProceedToCheckout = () => {
     if (isCheckoutDisabled) {
       if (hasOutOfStockItems) {
         toast.error("Remove out-of-stock items to continue");
@@ -217,8 +271,144 @@ export default function CartPage() {
       }
       return;
     }
+
+    // Pass the manually chosen coin redemption to checkout — the checkout page
+    // will still re-validate this against balance, the 5-coin cap, and the
+    // restricted category before trusting it.
+    try {
+      sessionStorage.setItem("jumbostar_checkout_coins", String(coinsApplied));
+    } catch (e) {
+      // sessionStorage can throw in private/incognito edge cases — non-fatal
+    }
+
     router.push("/Wholesale/checkout");
   };
+
+  // Extracted so the same summary markup renders both as the mobile top card
+  // and the desktop sticky sidebar without duplicating JSX.
+  const renderSummary = (sticky: boolean) => (
+    <div
+      className={`bg-white border-2 border-slate-900 rounded-[2.5rem] p-8 shadow-2xl ${
+        sticky ? "lg:sticky lg:top-24" : ""
+      }`}
+    >
+      <h3 className="text-lg font-black text-slate-900 uppercase tracking-tighter mb-6 flex items-center gap-2">
+        Invoice Summary <PackageCheck className="text-red-600" size={20} />
+      </h3>
+
+      <div className="space-y-3 mb-6">
+        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+          <span>Total Items (Ex. Tax)</span>
+          <span className="text-slate-900">₹{formatCurrency(subtotal)}</span>
+        </div>
+        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+          <span>Transport / Logistics</span>
+          <span className="text-slate-900">₹{formatCurrency(transportCharge)}</span>
+        </div>
+        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+          <span>Service & Handling</span>
+          <span className="text-slate-900">₹{formatCurrency(handlingFees)}</span>
+        </div>
+      </div>
+
+      {/* Manual Coin Redemption */}
+      <div className="mb-6 p-4 bg-amber-50/60 border border-amber-100 rounded-2xl">
+        <div className="flex items-center justify-between mb-2">
+          <span className="flex items-center gap-1.5 text-[10px] font-black text-amber-700 uppercase tracking-widest">
+            <Coins size={13} className="text-amber-500" /> Use Coins
+          </span>
+          <span className="text-[9px] font-bold text-amber-500 uppercase tracking-wide">
+            Balance: {availableCoins}
+          </span>
+        </div>
+
+        {hasRestrictedCategoryItem ? (
+          <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 bg-white/70 border border-amber-100 rounded-xl px-3 py-2">
+            <Ban size={13} className="text-slate-400 shrink-0" />
+            Coins can't be redeemed on orders containing Oil, Ghee & Vanaspathi products.
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={maxRedeemable}
+                value={coinsToRedeem}
+                onChange={(e) => handleCoinsInputChange(e.target.value)}
+                disabled={maxRedeemable === 0}
+                placeholder="0"
+                className="w-24 px-3 py-2 bg-white border border-amber-200 rounded-xl text-sm font-black text-slate-900 text-center focus:outline-none focus:ring-2 focus:ring-amber-400/40 disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+              <span className="text-[10px] font-bold text-slate-400 uppercase">
+                / max {maxRedeemable} coin{maxRedeemable === 1 ? "" : "s"}
+              </span>
+            </div>
+            {availableCoins === 0 && (
+              <p className="text-[9px] font-bold text-slate-400 mt-2 uppercase tracking-tight">
+                No coins in your wallet yet.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
+      {coinsApplied > 0 && (
+        <div className="flex justify-between text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-4">
+          <span className="flex items-center gap-1"><Coins size={11} /> Coins Applied ({coinsApplied})</span>
+          <span>-₹{formatCurrency(coinsApplied)}</span>
+        </div>
+      )}
+
+      <div className="h-px bg-slate-100 my-4" />
+      <div className="flex justify-between items-end mb-8">
+        <span className="text-[10px] font-black uppercase text-slate-400">Total Payable</span>
+        <span className="text-3xl font-black text-slate-900 tracking-tighter">₹{formatCurrency(grandTotal)}</span>
+      </div>
+
+      {/* Out of stock warning in summary */}
+      {hasOutOfStockItems && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3">
+          <AlertCircle className="text-red-600 shrink-0 mt-0.5" size={16} />
+          <p className="text-[10px] font-black text-red-600 uppercase leading-relaxed tracking-tight">
+            Some items are out of stock and excluded from your total. Please remove them to proceed.
+          </p>
+        </div>
+      )}
+
+      {/* Below minimum warning */}
+      {isBelowMinimum && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3">
+          <AlertCircle className="text-red-600 shrink-0" size={18} />
+          <p className="text-[10px] font-black text-red-600 uppercase leading-relaxed tracking-tight">
+            Minimum Order Value is ₹{MIN_ORDER_VALUE.toLocaleString()}.
+            Please add items worth ₹{formatCurrency(MIN_ORDER_VALUE - subtotal)} more to proceed.
+          </p>
+        </div>
+      )}
+
+      <button
+        disabled={isCheckoutDisabled}
+        onClick={handleProceedToCheckout}
+        className={`w-full py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg transition-all flex items-center justify-center gap-2 
+          ${isCheckoutDisabled
+            ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
+            : "bg-red-600 text-white hover:bg-slate-900 shadow-red-100"}`}
+      >
+        {hasOutOfStockItems
+          ? "Remove Out of Stock Items"
+          : isBelowMinimum
+          ? "Below Minimum Value"
+          : "Proceed to Checkout"
+        } <ArrowRight size={16} />
+      </button>
+
+      <p className="text-[8px] text-center text-slate-400 mt-6 font-bold uppercase leading-relaxed">
+        * Official business invoice will be generated <br /> after payment confirmation.
+      </p>
+    </div>
+  );
 
   if (loading) return (
     <div className="h-screen flex flex-col items-center justify-center bg-white">
@@ -256,6 +446,14 @@ export default function CartPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-12 gap-10">
+
+        {/* Invoice Summary — MOBILE ONLY, shown above the products */}
+        {cartItems.length > 0 && (
+          <div className="lg:hidden">
+            {renderSummary(false)}
+          </div>
+        )}
+
         {/* Items List */}
         <div className="lg:col-span-8 space-y-4">
 
@@ -268,6 +466,7 @@ export default function CartPage() {
             const discountPercent = calculateDiscountPercent(item);
             const itemStock = variant.stock || 0;
             const isItemOOS = itemStock <= 0;
+            const isRestrictedItem = product.category_id === COIN_RESTRICTED_CATEGORY_ID;
             // Quantity exceeds current stock (stock dropped after adding to cart)
             const isOverStock = item.quantity > itemStock && itemStock > 0;
 
@@ -318,6 +517,12 @@ export default function CartPage() {
                     {isOverStock && (
                       <span className="bg-orange-50 text-orange-500 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter flex items-center gap-1 border border-orange-100">
                         <AlertCircle size={8} /> Only {itemStock} left
+                      </span>
+                    )}
+                    {/* No-coins-on-this-item tag */}
+                    {isRestrictedItem && (
+                      <span className="bg-slate-100 text-slate-500 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter flex items-center gap-1 border border-slate-200">
+                        <Ban size={8} /> No Coins
                       </span>
                     )}
                   </div>
@@ -375,81 +580,13 @@ export default function CartPage() {
           )}
         </div>
 
-        {/* Summary Card */}
-        <div className="lg:col-span-4">
-          <div className="bg-white border-2 border-slate-900 rounded-[2.5rem] p-8 sticky top-24 shadow-2xl">
-            <h3 className="text-lg font-black text-slate-900 uppercase tracking-tighter mb-6 flex items-center gap-2">
-              Invoice Summary <PackageCheck className="text-red-600" size={20} />
-            </h3>
-
-            <div className="space-y-3 mb-8">
-              <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                <span>Total Items (Ex. Tax)</span>
-                <span className="text-slate-900">₹{formatCurrency(subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                <span>Transport / Logistics</span>
-                <span className="text-slate-900">₹{formatCurrency(transportCharge)}</span>
-              </div>
-              <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                <span>Service & Handling</span>
-                <span className="text-slate-900">₹{formatCurrency(handlingFees)}</span>
-              </div>
-              {coinsApplied > 0 && (
-                <div className="flex justify-between text-[10px] font-bold text-amber-600 uppercase tracking-widest">
-                  <span className="flex items-center gap-1"><Coins size={11} /> Coins Applied ({coinsApplied})</span>
-                  <span>-₹{formatCurrency(coinsApplied)}</span>
-                </div>
-              )}
-              <div className="h-px bg-slate-100 my-4" />
-              <div className="flex justify-between items-end">
-                <span className="text-[10px] font-black uppercase text-slate-400">Total Payable</span>
-                <span className="text-3xl font-black text-slate-900 tracking-tighter">₹{formatCurrency(grandTotal)}</span>
-              </div>
-            </div>
-
-            {/* Out of stock warning in summary */}
-            {hasOutOfStockItems && (
-              <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3">
-                <AlertCircle className="text-red-600 shrink-0 mt-0.5" size={16} />
-                <p className="text-[10px] font-black text-red-600 uppercase leading-relaxed tracking-tight">
-                  Some items are out of stock and excluded from your total. Please remove them to proceed.
-                </p>
-              </div>
-            )}
-
-            {/* Below minimum warning */}
-            {isBelowMinimum && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3">
-                <AlertCircle className="text-red-600 shrink-0" size={18} />
-                <p className="text-[10px] font-black text-red-600 uppercase leading-relaxed tracking-tight">
-                  Minimum Order Value is ₹{MIN_ORDER_VALUE.toLocaleString()}.
-                  Please add items worth ₹{formatCurrency(MIN_ORDER_VALUE - subtotal)} more to proceed.
-                </p>
-              </div>
-            )}
-
-            <button
-              disabled={isCheckoutDisabled}
-              onClick={handleProceedToCheckout}
-              className={`w-full py-5 rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg transition-all flex items-center justify-center gap-2 
-                ${isCheckoutDisabled
-                  ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
-                  : "bg-red-600 text-white hover:bg-slate-900 shadow-red-100"}`}
-            >
-              {hasOutOfStockItems
-                ? "Remove Out of Stock Items"
-                : isBelowMinimum
-                ? "Below Minimum Value"
-                : "Proceed to Checkout"
-              } <ArrowRight size={16} />
-            </button>
-
-            <p className="text-[8px] text-center text-slate-400 mt-6 font-bold uppercase leading-relaxed">
-              * Official business invoice will be generated <br /> after payment confirmation.
-            </p>
+        {/* Summary Card — DESKTOP ONLY sticky sidebar. Hidden on mobile since
+            the top copy above already covers mobile. */}
+        {cartItems.length > 0 && (
+          <div className="hidden lg:block lg:col-span-4">
+            {renderSummary(true)}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

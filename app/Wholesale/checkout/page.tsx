@@ -8,7 +8,7 @@ import {
     MapPin, Loader2, ShieldCheck, Store,
     Wallet, CheckCircle2, ArrowLeft, ChevronRight,
     Camera, CreditCard, QrCode, AlertCircle,
-    Truck, PiggyBank, Coins
+    Truck, PiggyBank, Coins, Ban
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 
@@ -26,6 +26,15 @@ const formatCurrency = (amount: number): string => {
         maximumFractionDigits: 2,
     });
 };
+
+// Category under which coin redemption is disabled entirely — "Oil, Ghee and Vanaspathi"
+const COIN_RESTRICTED_CATEGORY_ID = "6b040c59-6099-4e1a-952e-bddd71df7bfb";
+
+// Hard ceiling on how many coins can be redeemed per order, regardless of wallet balance
+const MAX_COINS_PER_ORDER = 5;
+
+// sessionStorage key the Cart page writes to before navigating here
+const COINS_HANDOFF_KEY = "jumbostar_checkout_coins";
 
 export default function CheckoutPage() {
     const router = useRouter();
@@ -47,9 +56,17 @@ export default function CheckoutPage() {
     const [subtotal, setSubtotal] = useState(0);
     const [paymentMethod, setPaymentMethod] = useState<'bank' | 'upi' | 'cod'>('cod');
 
-    // Loyalty coins wallet balance (1 coin = ₹1). Applied automatically — no manual entry.
+    // Loyalty coins wallet balance (1 coin = ₹1).
     const [availableCoins, setAvailableCoins] = useState<number>(0);
     const [coinsApplied, setCoinsApplied] = useState<number>(0);
+
+    // The coin amount handed off from the Cart page — treated as a *request*,
+    // always re-clamped against live balance, the 5-coin cap, and the
+    // restricted category before being trusted.
+    const [requestedCoins, setRequestedCoins] = useState<number>(0);
+
+    // Does this cart contain anything from the coin-restricted category?
+    const [hasRestrictedCategoryItem, setHasRestrictedCategoryItem] = useState<boolean>(false);
 
     // ── SUCCESS CONFIRMATION STATE (shown after order is placed) ──
     const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -200,6 +217,7 @@ export default function CheckoutPage() {
                         products(
                             name,
                             brand,
+                            category_id,
                             product_images(image_url)
                         )
                     )
@@ -223,9 +241,30 @@ export default function CheckoutPage() {
 
             const preDiscount = calcSubtotal + transport + handling;
 
-            // Coins are applied automatically — as many as the wallet has, capped
-            // so the total never goes negative. 1 coin = ₹1.
-            const appliedCoins = Math.max(0, Math.min(coins, Math.floor(preDiscount)));
+            // Does the cart contain a coin-restricted category item?
+            const restrictedFound = cleanCart.some(
+                (item: any) => item.product_variants?.products?.category_id === COIN_RESTRICTED_CATEGORY_ID
+            );
+            setHasRestrictedCategoryItem(restrictedFound);
+
+            // Read the coin amount the Cart page handed off — treated purely as
+            // a request, never trusted directly.
+            let handoffCoins = 0;
+            try {
+                const stored = sessionStorage.getItem(COINS_HANDOFF_KEY);
+                const parsed = stored ? parseInt(stored, 10) : 0;
+                handoffCoins = isNaN(parsed) ? 0 : parsed;
+
+            } catch (e) {
+                handoffCoins = 0;
+            }
+            setRequestedCoins(handoffCoins);
+
+            // Re-clamp: never above wallet balance, the per-order cap, the order
+            // total itself, and zero entirely if a restricted item is present.
+            const appliedCoins = restrictedFound
+                ? 0
+                : Math.max(0, Math.min(handoffCoins, coins, MAX_COINS_PER_ORDER, Math.floor(preDiscount)));
 
             setSubtotal(calcSubtotal);
             setCoinsApplied(appliedCoins);
@@ -238,14 +277,19 @@ export default function CheckoutPage() {
         }
     };
 
+    // Keep the applied coin amount valid if any of its inputs change after
+    // initial load (e.g. charges recalculated) — always re-derived from the
+    // original requestedCoins, never silently topped back up to full balance.
     useEffect(() => {
         if (cartItems.length === 0) return;
         const preDiscount = subtotal + transportCharge + handlingCharge;
-        const appliedCoins = Math.max(0, Math.min(availableCoins, Math.floor(preDiscount)));
+        const appliedCoins = hasRestrictedCategoryItem
+            ? 0
+            : Math.max(0, Math.min(requestedCoins, availableCoins, MAX_COINS_PER_ORDER, Math.floor(preDiscount)));
         setCoinsApplied(appliedCoins);
         setTotal(Math.max(0, preDiscount - appliedCoins));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [subtotal, transportCharge, handlingCharge, availableCoins]);
+    }, [subtotal, transportCharge, handlingCharge, availableCoins, requestedCoins, hasRestrictedCategoryItem]);
 
     const handlePlaceOrder = async () => {
         if (!shopAddress) {
@@ -297,8 +341,19 @@ export default function CheckoutPage() {
             const savedAmount = calculateTotalSavings();
             const savedPercentage = calculateSavingsPercentage();
 
-            // Re-clamp one last time right before submitting, in case anything shifted
-            const coinsToRedeem = Math.max(0, Math.min(coinsApplied, availableCoins, Math.floor(subtotal + transportCharge + handlingCharge)));
+            // Final re-clamp right before submitting — the last line of defense
+            // against a stale/tampered value.
+            const coinsToRedeem = hasRestrictedCategoryItem
+                ? 0
+                : Math.max(
+                    0,
+                    Math.min(
+                        coinsApplied,
+                        availableCoins,
+                        MAX_COINS_PER_ORDER,
+                        Math.floor(subtotal + transportCharge + handlingCharge)
+                    )
+                );
 
             const orderData = {
                 order_id_custom: customId,
@@ -351,10 +406,10 @@ export default function CheckoutPage() {
 
             // Deduct the applied coins from the wallet now that the order is confirmed
             if (coinsToRedeem > 0) {
-                const { error: coinsError } = await supabase
-                    .from("wholesale_users")
-                    .update({ coins: Math.max(0, availableCoins - coinsToRedeem) })
-                    .eq("id", user.id);
+                const { error: coinsError } = await supabase.rpc("redeem_coins", {
+                    p_user_id: user.id,
+                    p_amount: coinsToRedeem,
+                });
 
                 if (coinsError) {
                     console.error("Failed to deduct redeemed coins:", coinsError);
@@ -483,10 +538,10 @@ export default function CheckoutPage() {
             onClick={handlePlaceOrder}
             disabled={payLoading || !isFormValid}
             className={`w-full py-6 rounded-3xl font-black uppercase tracking-[0.2em] text-xs transition-all flex items-center justify-center gap-3 shadow-xl ${payLoading || !isFormValid
-                    ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
-                    : isAmountTooLow
-                        ? "bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200"
-                        : "bg-red-600 hover:bg-slate-900 text-white shadow-red-200 hover:scale-[1.02]"
+                ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
+                : isAmountTooLow
+                    ? "bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200"
+                    : "bg-red-600 hover:bg-slate-900 text-white shadow-red-200 hover:scale-[1.02]"
                 }`}
         >
             {payLoading ? (
@@ -765,6 +820,13 @@ export default function CheckoutPage() {
                                     </div>
                                 )}
 
+                                {hasRestrictedCategoryItem && (
+                                    <div className="flex items-center gap-2 text-[9px] font-bold text-amber-300 uppercase tracking-wide bg-white/5 rounded-xl px-3 py-2">
+                                        <Ban size={12} className="shrink-0" />
+                                        Coins not applicable — order contains Oil, Ghee & Vanaspathi items
+                                    </div>
+                                )}
+
                                 <div className="h-px bg-slate-800 my-4" />
                                 <div className="flex justify-between items-end">
                                     <div className="text-[10px] font-black text-white uppercase tracking-widest">Grand Total</div>
@@ -825,20 +887,20 @@ export default function CheckoutPage() {
                                 </div>
                             )}
 
-                       {successData.coinsRedeemed > 0 && (
-    <div className="bg-white border-2 border-amber-100 rounded-[1.75rem] p-5 shadow-lg flex items-center gap-4">
-        <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center shrink-0">
-            <Coins className="text-amber-500" size={22} />
-        </div>
-        <div className="flex-1 min-w-0">
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">Coins Applied</p>
-            <p className="text-2xl font-black text-amber-500 tracking-tighter truncate">
-                -₹{formatCurrency(successData.coinsRedeemed)}
-            </p>
-            <p className="text-[9px] font-bold text-slate-400 truncate">deducted from your wallet</p>
-        </div>
-    </div>
-)}
+                            {successData.coinsRedeemed > 0 && (
+                                <div className="bg-white border-2 border-amber-100 rounded-[1.75rem] p-5 shadow-lg flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center shrink-0">
+                                        <Coins className="text-amber-500" size={22} />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">Coins Applied</p>
+                                        <p className="text-2xl font-black text-amber-500 tracking-tighter truncate">
+                                            -₹{formatCurrency(successData.coinsRedeemed)}
+                                        </p>
+                                        <p className="text-[9px] font-bold text-slate-400 truncate">deducted from your wallet</p>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="bg-white border-2 border-slate-100 rounded-[1.75rem] p-5 shadow-lg flex items-center gap-4">
                                 <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${successData.isSameDay ? "bg-red-50" : "bg-slate-50"}`}>

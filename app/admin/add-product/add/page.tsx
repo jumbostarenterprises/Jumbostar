@@ -9,7 +9,7 @@ import {
   IndianRupee, RotateCcw, ArrowLeft, ListOrdered, LayoutGrid, Image as ImageIcon
 } from "lucide-react";
 
-const UNITS = ["kg", "g", "L", "ml", "pieces", "pack", "box"];
+const UNITS = ["kg", "g", "L", "ml", "pieces", "pack", "box", "bag", "dozen", "set", "bottle", "can", "jar", "tube", "roll", "sheet", "tin"];
 
 interface Tier { min_qty: string; price: string; }
 interface Variant {
